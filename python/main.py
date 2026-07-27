@@ -26,11 +26,25 @@ from web_search import PartCandidate, search_parts
 
 
 def write_result(path: Path, payload: dict[str, Any]) -> None:
+    """Пишет JSON (UTF-8 BOM) и параллельный TXT (UTF-16) для AutoHotkey."""
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         json.dumps(payload, ensure_ascii=False, indent=2),
-        encoding="utf-8",
+        encoding="utf-8-sig",
     )
+    # UTF-16 LE с BOM — AHK FileEncoding UTF-16 читает кириллицу без искажений
+    txt_path = path.with_suffix(".txt")
+    if txt_path.name == "last_result.txt" or path.suffix.lower() == ".json":
+        txt_path = path.parent / "last_result.txt"
+    lines = [
+        f"status={payload.get('status', '')}",
+        f"message={payload.get('message', '')}",
+        f"name={payload.get('name', '')}",
+        f"barcode={payload.get('barcode', '')}",
+        f"ntin={payload.get('ntin', '')}",
+        f"ntin_missing={str(payload.get('ntin_missing', True)).lower()}",
+    ]
+    txt_path.write_text("\n".join(lines) + "\n", encoding="utf-16")
 
 
 def build_internet_name(cand: PartCandidate) -> str:

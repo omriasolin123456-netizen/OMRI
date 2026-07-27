@@ -31,11 +31,16 @@
 ## Установка (Windows)
 
 1. Установите [Python 3.10+](https://www.python.org/downloads/) (отметьте *Add to PATH*).
-2. Установите [AutoHotkey 1.1+](https://www.autohotkey.com/).
+2. Установите [AutoHotkey 1.1 **Unicode**](https://www.autohotkey.com/) (`AutoHotkeyU64.exe`, не ANSI).
 3. Скопируйте папку проекта на ПК.
 4. Запустите `install.bat`.
 5. Положите свои прайс-листы `.xlsx` в папку `price\`.
 6. Запустите `run.bat` или `MicroinvestAssistant.ahk`.
+
+### Если в окнах AHK «иероглифы» вместо русского
+- Нужен **AutoHotkey Unicode** (не ANSI-сборка).
+- Файл `MicroinvestAssistant.ahk` должен быть в **UTF-8 с BOM** (так и сохранён в репозитории).
+- Не открывайте/не сохраняйте `.ahk` в Блокноте как «UTF-8» без BOM — используйте Notepad++ → Encoding → **UTF-8-BOM**.
 
 ## Excel-прайсы (`price\`)
 

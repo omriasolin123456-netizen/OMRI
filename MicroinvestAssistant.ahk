@@ -1,10 +1,11 @@
+﻿#NoEnv
+#SingleInstance Force
 ; =============================================================================
 ; Microinvest Склад Pro — помощник заполнения карточек автозапчастей
-; AutoHotkey 1.1+ / Windows 11 x64
-; Горячая клавиша и ClassNN полей читаются из config.ini
+; AutoHotkey UNICODE 1.1+ (AutoHotkeyU64.exe) / Windows 11 x64
+; Файл ДОЛЖЕН быть в UTF-8 с BOM — иначе кириллица отображается «иероглифами».
 ; =============================================================================
-#NoEnv
-#SingleInstance Force
+FileEncoding, UTF-8
 SendMode Input
 SetWorkingDir %A_ScriptDir%
 SetTitleMatchMode, 2
@@ -19,6 +20,7 @@ global g_FieldNtin := "WindowsForms10.EDIT.app.0.19bf6b8_r8_ad11"
 global g_Python := "python"
 global g_Timeout := 120000
 global g_ResultFile := A_ScriptDir . "\logs\last_result.json"
+global g_ResultTxt := A_ScriptDir . "\logs\last_result.txt"
 global g_LogDir := A_ScriptDir . "\logs"
 
 LoadConfig()
@@ -45,6 +47,9 @@ LoadConfig() {
         g_ResultFile := resultRel
     else
         g_ResultFile := A_ScriptDir . "\" . resultRel
+
+    SplitPath, g_ResultFile, , resultDir
+    g_ResultTxt := resultDir . "\last_result.txt"
 
     if (SubStr(logRel, 1, 1) = "\" || SubStr(logRel, 2, 1) = ":")
         g_LogDir := logRel
@@ -86,7 +91,7 @@ return
 
 AssistFill() {
     global g_WindowTitle, g_FieldName, g_FieldBarcode, g_FieldNtin
-    global g_Python, g_Timeout, g_ResultFile, g_LogDir
+    global g_Python, g_Timeout, g_ResultFile, g_ResultTxt, g_LogDir
 
     WinGet, winId, ID, A
     WinGetTitle, activeTitle, ahk_id %winId%
@@ -110,9 +115,10 @@ AssistFill() {
     ; Сохраняем исходное значение — оно станет штрихкодом
     originalQuery := nameText
 
-    ; Удаляем предыдущий результат
     if FileExist(g_ResultFile)
         FileDelete, %g_ResultFile%
+    if FileExist(g_ResultTxt)
+        FileDelete, %g_ResultTxt%
 
     scriptPath := A_ScriptDir . "\python\main.py"
     if !FileExist(scriptPath) {
@@ -122,23 +128,44 @@ AssistFill() {
 
     TrayTip, Microinvest Assistant, Идёт поиск: %originalQuery% ..., 3, 1
 
-    ; Передаём исходный запрос и путь к config
     cmd := """" . g_Python . """ """ . scriptPath . """ --query """ . EscapeArg(originalQuery) . """ --config """ . A_ScriptDir . "\config.ini"" --result """ . g_ResultFile . """"
     RunWait, %comspec% /c %cmd%, %A_ScriptDir%, Hide UseErrorLevel
     exitCode := ErrorLevel
 
-    if !FileExist(g_ResultFile) {
+    ; Сначала читаем UTF-16 txt (надёжно для кириллицы), иначе JSON UTF-8 BOM
+    status := ""
+    message := ""
+    newName := ""
+    barcode := ""
+    ntin := ""
+    ntinMissing := ""
+
+    if FileExist(g_ResultTxt) {
+        oldEnc := A_FileEncoding
+        FileEncoding, UTF-16
+        FileRead, txtData, %g_ResultTxt%
+        FileEncoding, %oldEnc%
+        status := IniGetSection(txtData, "status")
+        message := IniGetSection(txtData, "message")
+        newName := IniGetSection(txtData, "name")
+        barcode := IniGetSection(txtData, "barcode")
+        ntin := IniGetSection(txtData, "ntin")
+        ntinMissing := IniGetSection(txtData, "ntin_missing")
+    } else if FileExist(g_ResultFile) {
+        oldEnc := A_FileEncoding
+        FileEncoding, UTF-8
+        FileRead, jsonText, %g_ResultFile%
+        FileEncoding, %oldEnc%
+        status := JsonGet(jsonText, "status")
+        message := JsonGet(jsonText, "message")
+        newName := JsonGet(jsonText, "name")
+        barcode := JsonGet(jsonText, "barcode")
+        ntin := JsonGet(jsonText, "ntin")
+        ntinMissing := JsonGet(jsonText, "ntin_missing")
+    } else {
         MsgBox, 16, Microinvest Assistant, Python не вернул результат.`nКод выхода: %exitCode%`nСм. логи в папке logs\
         return
     }
-
-    FileRead, jsonText, %g_ResultFile%
-    status := JsonGet(jsonText, "status")
-    message := JsonGet(jsonText, "message")
-    newName := JsonGet(jsonText, "name")
-    barcode := JsonGet(jsonText, "barcode")
-    ntin := JsonGet(jsonText, "ntin")
-    ntinMissing := JsonGet(jsonText, "ntin_missing")
 
     if (status = "cancelled") {
         TrayTip, Microinvest Assistant, Выбор отменён. Данные не изменены., 2, 1
@@ -152,7 +179,6 @@ AssistFill() {
         return
     }
 
-    ; Успех — заполняем поля. Ничего не меняем при пустом имени.
     if !SetControlText(winId, g_FieldName, newName) {
         MsgBox, 16, Microinvest Assistant, Не удалось записать поле «Имя».`nПроверьте ClassNN в config.ini
         return
@@ -173,13 +199,8 @@ AssistFill() {
 
 GetControlText(winId, classNN) {
     text := ""
-    try {
-        ControlGetText, text, %classNN%, ahk_id %winId%
-    } catch e {
-        text := ""
-    }
+    ControlGetText, text, %classNN%, ahk_id %winId%
     if (text = "") {
-        ; Попытка найти похожий ClassNN (меняется суффикс _rN_)
         matched := FindSimilarEdit(winId, classNN)
         if (matched != "")
             ControlGetText, text, %matched%, ahk_id %winId%
@@ -189,19 +210,43 @@ GetControlText(winId, classNN) {
 
 SetControlText(winId, classNN, value) {
     target := classNN
-    ControlGetText, probe, %classNN%, ahk_id %winId%
-    if (ErrorLevel) {
+    ControlGet, hwnd, Hwnd, , %classNN%, ahk_id %winId%
+    if (ErrorLevel || !hwnd) {
         matched := FindSimilarEdit(winId, classNN)
         if (matched = "")
             return false
         target := matched
+        ControlGet, hwnd, Hwnd, , %target%, ahk_id %winId%
     }
+
+    ; Unicode WM_SETTEXT (0x000C) — корректно пишет кириллицу в WinForms
+    if (hwnd) {
+        SendMessage, 0x000C, 0, &value, , ahk_id %hwnd%
+        ControlGetText, check, , ahk_id %hwnd%
+        if (check = value)
+            return true
+    }
+
     ControlSetText, %target%, %value%, ahk_id %winId%
-    ; Дополнительно через EM_REPLACESEL не требуется для WinForms Edit
+    ControlGetText, check2, %target%, ahk_id %winId%
+    if (check2 = value)
+        return true
+
+    ; Fallback через буфер обмена
+    clipSaved := ClipboardAll
+    Clipboard :=
+    Clipboard := value
+    ClipWait, 1
+    ControlFocus, %target%, ahk_id %winId%
+    Sleep, 40
+    Send, ^a
+    Sleep, 30
+    Send, ^v
+    Sleep, 40
+    Clipboard := clipSaved
     return true
 }
 
-; Ищет Edit с тем же окончанием (например _ad110), если _r8_ изменился
 FindSimilarEdit(winId, classNN) {
     suffix := ""
     if RegExMatch(classNN, "i)_ad\d+$", m)
@@ -224,12 +269,18 @@ EscapeArg(s) {
     return s
 }
 
-; Простой JSON-парсер для плоских строковых полей
+; key=value строки из UTF-16 last_result.txt
+IniGetSection(data, key) {
+    pattern := "m)^" . key . "=(.*)$"
+    if RegExMatch(data, pattern, m)
+        return Trim(m1)
+    return ""
+}
+
 JsonGet(json, key) {
     pattern := """" . key . """\s*:\s*""((?:\\.|[^""])*)"""
     if RegExMatch(json, pattern, m)
         return UnescapeJson(m1)
-    ; число / bool / null
     pattern2 := """" . key . """\s*:\s*([^,}\s]+)"
     if RegExMatch(json, pattern2, m2) {
         v := Trim(m21)
@@ -246,5 +297,13 @@ UnescapeJson(s) {
     StringReplace, s, s, \n, `n, All
     StringReplace, s, s, \r, `r, All
     StringReplace, s, s, \t, `t, All
+    ; \uXXXX из JSON
+    Loop {
+        if !RegExMatch(s, "i)\\u([0-9a-f]{4})", m)
+            break
+        code := "0x" . m1
+        ch := Chr(code)
+        StringReplace, s, s, %m%, %ch%, All
+    }
     return s
 }
