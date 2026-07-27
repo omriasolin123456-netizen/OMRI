@@ -58,6 +58,9 @@ def load_config(config_path: str | Path | None = None) -> dict[str, Any]:
         "col_brand": [x.strip() for x in get("excel", "col_brand").split("|") if x.strip()],
         "col_model": [x.strip() for x in get("excel", "col_model").split("|") if x.strip()],
         "ignore_article_columns": _as_bool(get("excel", "ignore_article_columns", "true"), True),
+        "excel_search_article_columns": _as_bool(
+            get("excel", "excel_search_article_columns", "false"), False
+        ),
         "min_match_score": float(get("excel", "min_match_score", "0.55") or 0.55),
         "excel_override_score": float(get("excel", "excel_override_score", "0.8") or 0.8),
         "selection_mode": get("ui", "selection_mode", "always"),

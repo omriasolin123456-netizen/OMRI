@@ -35,9 +35,9 @@ def select_candidate(candidates: Sequence[PartCandidate], query: str) -> PartCan
     ttk.Label(
         frame,
         text=(
-            f"Запрос: «{query}» — найдено вариантов: {len(candidates)}\n"
-            "Если в списке нет нужного товара — введите название вручную внизу\n"
-            "(формат: Наименование  Модель  Бренд)."
+            f"Запрос: «{query}» — найдено: {len(candidates)}\n"
+            "Сверху обычно позиции из ВАШЕГО прайса (Excel) — выбирайте их в первую очередь.\n"
+            "Если нужного нет — введите вручную: Наименование  Модель  Бренд."
         ),
         justify=tk.LEFT,
     ).pack(anchor=tk.W, pady=(0, 8))
@@ -60,9 +60,14 @@ def select_candidate(candidates: Sequence[PartCandidate], query: str) -> PartCan
     scroll.config(command=lb.yview)
 
     if candidates:
-        for i, c in enumerate(candidates, start=1):
-            src = f" [{c.source}]" if c.source else ""
-            lb.insert(tk.END, f"{i}. {c.display}{src}")
+    for i, c in enumerate(candidates, start=1):
+        if c.source == "excel":
+            src = " [ВАШ ПРАЙС]"
+        elif c.source:
+            src = f" [{c.source}]"
+        else:
+            src = ""
+        lb.insert(tk.END, f"{i}. {c.display}{src}")
         lb.selection_set(0)
     else:
         lb.insert(tk.END, "(Автоматический поиск ничего подходящего не нашёл)")

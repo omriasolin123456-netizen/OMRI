@@ -320,7 +320,12 @@ def _row_from_format(
 
 
 def search_excel_candidates(query: str, cfg: dict[str, Any]) -> list:
-    """Кандидаты из прайсов, если запрос встречается в названии/модели/бренде (не в каталоге)."""
+    """Кандидаты из ВАШИХ прайсов — главный источник нужной запчасти.
+
+    Ищем код из поля «Имя» внутри текста названия/модели/бренда/номенклатуры
+    (в т.ч. фрагмент //OE...//). Отдельные колонки «Каталожный №»/«Номер»
+    не используем, если excel_search_article_columns = false.
+    """
     from web_search import PartCandidate
 
     q = (query or "").strip()
@@ -333,19 +338,50 @@ def search_excel_candidates(query: str, cfg: dict[str, Any]) -> list:
     seen: set[str] = set()
     qn = _norm(q)
     qc = re.sub(r"[^a-zA-Zа-яА-Я0-9]", "", qn)
+    use_article_cols = bool(cfg.get("excel_search_article_columns", False))
 
     for source, df, fmt in frames:
         columns = list(df.columns)
+        article_col = None
+        if use_article_cols:
+            article_col = _find_column(
+                columns,
+                ["Каталожный №", "Каталожный номер", "Номер", "Артикул", "OE", "OEM"],
+            )
+        raw_name_col = _find_column(
+            columns,
+            cfg.get("col_name")
+            or [
+                "Наименование товара",
+                "Товар",
+                "Номенклатура",
+                "Ценовая группа",
+            ],
+        )
+
         for _, row in df.iterrows():
             parsed = _row_from_format(row, columns, fmt, cfg)
             if not parsed:
                 continue
             row_name, row_model, row_brand = parsed
-            blob = " ".join(p for p in (row_name, row_model, row_brand) if p)
+
+            chunks = [row_name, row_model, row_brand]
+            # Сырая номенклатура (там может быть //OE361337// или /361337)
+            if raw_name_col:
+                raw = row.get(raw_name_col)
+                if raw is not None and not (isinstance(raw, float) and pd.isna(raw)):
+                    chunks.append(str(raw))
+            if article_col:
+                av = row.get(article_col)
+                if av is not None and not (isinstance(av, float) and pd.isna(av)):
+                    chunks.append(str(av))
+
+            blob = " ".join(p for p in chunks if p)
             bn = _norm(blob)
             bc = re.sub(r"[^a-zA-Zа-яА-Я0-9]", "", bn)
             if qn not in bn and qc not in bc:
                 continue
+
             key = f"{row_name}|{row_brand}|{row_model}".upper()
             if key in seen:
                 continue
@@ -357,11 +393,13 @@ def search_excel_candidates(query: str, cfg: dict[str, Any]) -> list:
                     title=row_name,
                     model=row_model,
                     source="excel",
-                    extra={"file": source},
+                    extra={"file": source, "match": "price"},
                 )
             )
-            if len(out) >= 10:
+            if len(out) >= 15:
+                logger.info("Excel-кандидаты по «%s»: %s (лимит)", q, len(out))
                 return out
+
     logger.info("Excel-кандидаты по запросу «%s»: %s", q, len(out))
     return out
 

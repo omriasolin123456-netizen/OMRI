@@ -113,29 +113,40 @@ def search_fapi(query: str, cfg: dict[str, Any]) -> list[PartCandidate]:
 
 
 def search_parts(variants: list[str], cfg: dict[str, Any]) -> list[PartCandidate]:
-    """Быстрый поиск: один запрос FAPI (+ веб только если включено и FAPI пуст)."""
+    """Сначала ВАШ прайс (Excel), потом FAPI. Так выше шанс нужной запчасти."""
+    from excel_search import search_excel_candidates
+
     query = variants[0] if variants else ""
     if not query:
         return []
 
-    # Только первый вариант артикула — без серии доп. запросов
+    excel = search_excel_candidates(query, cfg)
     fapi = search_fapi(query, cfg)
 
     web: list[PartCandidate] = []
-    if not fapi and cfg.get("enable_web_enrichment", False):
+    if not excel and not fapi and cfg.get("enable_web_enrichment", False):
         web = _quick_web(query, cfg)
 
-    merged = fapi + web
-    # точные артикулы выше
     prefer = soft_norm_article(query)
 
     def rank(c: PartCandidate) -> tuple:
+        # excel из прайса — всегда выше интернет-кроссов
+        src = {"excel": 0, "fapi": 1, "web": 2}.get(c.source, 9)
         exact = 0 if soft_norm_article(c.article) == prefer else 1
-        src = 0 if c.source == "fapi" else 1
-        return (exact, src, c.brand, c.article)
+        return (src, exact, c.brand, c.title)
 
-    merged.sort(key=rank)
-    return merged[: int(cfg.get("max_candidates") or 10)]
+    merged = excel + fapi + web
+    # дедуп
+    seen: set[str] = set()
+    uniq: list[PartCandidate] = []
+    for c in merged:
+        k = c.key()
+        if k in seen:
+            continue
+        seen.add(k)
+        uniq.append(c)
+    uniq.sort(key=rank)
+    return uniq[: int(cfg.get("max_candidates") or 12)]
 
 
 def _quick_web(query: str, cfg: dict[str, Any]) -> list[PartCandidate]:
