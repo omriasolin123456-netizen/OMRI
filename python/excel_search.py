@@ -396,11 +396,8 @@ def search_excel(
             score_name = " ".join(p for p in (row_name, row_model) if p)
             score = _score_row(score_name, row_brand, title, brand)
 
-            # Мягкий бонус: исходный запрос встречается в названии (не в каталожном №)
-            if query:
-                qn = _norm(query)
-                if qn and len(qn) >= 4 and qn in _norm(score_name):
-                    score = max(score, 0.6)
+            # Не поднимаем score только из-за совпадения исходного штрихкода в тексте —
+            # это подменяло выбранный товар чужой строкой Excel.
 
             if score < min_score:
                 continue

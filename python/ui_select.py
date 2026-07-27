@@ -136,3 +136,65 @@ def select_candidate(candidates: Sequence[PartCandidate], query: str) -> PartCan
 
     root.mainloop()
     return selected["value"]
+
+
+def select_ntin(candidates, query: str):
+    """Выбор NTIN из нескольких карточек НКТ."""
+    if not candidates:
+        return None
+    if len(candidates) == 1:
+        return candidates[0]
+
+    try:
+        import tkinter as tk
+        from tkinter import ttk
+    except ImportError:
+        return candidates[0]
+
+    root = tk.Tk()
+    root.title("Выбор NTIN — Microinvest Assistant")
+    root.attributes("-topmost", True)
+    root.resizable(True, True)
+    w, h = 780, 420
+    root.geometry(f"{w}x{h}+{(root.winfo_screenwidth()-w)//2}+{(root.winfo_screenheight()-h)//3}")
+
+    picked = {"value": None}
+    frame = ttk.Frame(root, padding=12)
+    frame.pack(fill=tk.BOTH, expand=True)
+    ttk.Label(
+        frame,
+        text=(
+            f"Найдено несколько NTIN по запросу «{query}»:\n"
+            "Выберите карточку товара из Национального каталога."
+        ),
+        justify=tk.LEFT,
+    ).pack(anchor=tk.W, pady=(0, 8))
+
+    lb = tk.Listbox(frame, font=("Segoe UI", 11), exportselection=False)
+    lb.pack(fill=tk.BOTH, expand=True)
+    for i, c in enumerate(candidates, 1):
+        lb.insert(tk.END, f"{i}. {c.display}")
+    lb.selection_set(0)
+
+    btns = ttk.Frame(frame)
+    btns.pack(fill=tk.X, pady=(10, 0))
+
+    def ok(_e=None):
+        idxs = lb.curselection()
+        if not idxs:
+            return
+        picked["value"] = candidates[int(idxs[0])]
+        root.destroy()
+
+    def skip(_e=None):
+        picked["value"] = None
+        root.destroy()
+
+    ttk.Button(btns, text="OK", command=ok).pack(side=tk.RIGHT, padx=(6, 0))
+    ttk.Button(btns, text="Пропустить NTIN", command=skip).pack(side=tk.RIGHT)
+    lb.bind("<Double-Button-1>", ok)
+    root.bind("<Return>", ok)
+    root.bind("<Escape>", skip)
+    root.protocol("WM_DELETE_WINDOW", skip)
+    root.mainloop()
+    return picked["value"]

@@ -78,26 +78,28 @@ def write_result(path: Path, payload: dict[str, Any]) -> None:
     txt_path.write_text("\n".join(lines) + "\n", encoding="utf-16")
 
 
-def build_internet_name(cand: Any) -> str:
-    title = (cand.title or "").strip()
-    brand = (cand.brand or "").strip()
-    article = (cand.article or "").strip()
-    bits: list[str] = []
-    if title:
-        bits.append(title)
-    if article and article.lower() not in title.lower():
-        bits.append(article)
-    if brand and brand.lower() not in " ".join(bits).lower():
-        bits.append(brand)
-    return " ".join(bits).strip()
+def build_final_name(name: str, model: str, brand: str) -> str:
+    """Строго: Название Модель Бренд (без артикула в имени)."""
+    from ntin_search import short_product_name
+
+    short = short_product_name(name)
+    parts: list[str] = []
+    for p in (short, model, brand):
+        p = (p or "").strip()
+        if not p:
+            continue
+        if parts and p.lower() in " ".join(parts).lower():
+            continue
+        parts.append(p)
+    return " ".join(parts).strip()
 
 
 def run(query: str, cfg: dict[str, Any], logger) -> dict[str, Any]:
     from excel_search import search_excel
-    from ntin_search import search_ntin
+    from ntin_search import search_ntin_candidates, short_product_name
     from query_parser import clean_query, looks_like_part_number
-    from ui_select import select_candidate
-    from web_search import PartCandidate, search_parts
+    from ui_select import select_candidate, select_ntin
+    from web_search import search_parts
 
     parsed = clean_query(query)
     barcode = parsed.raw
@@ -132,9 +134,7 @@ def run(query: str, cfg: dict[str, Any], logger) -> dict[str, Any]:
             "ntin_missing": True,
         }
 
-    # Всегда показываем выбор — автовыбор по FAPI часто даёт не тот товар
     chosen = select_candidate(candidates, parsed.cleaned)
-
     if chosen is None:
         return {
             "status": "cancelled",
@@ -147,26 +147,35 @@ def run(query: str, cfg: dict[str, Any], logger) -> dict[str, Any]:
 
     logger.info("Выбран: %s", chosen.display)
 
-    # Если выбрали строку из Excel или ручной ввод — формат «Наименование Модель Бренд»
+    # База имени — то, что выбрал пользователь (не подменять чужой строкой Excel)
+    base_name = chosen.title
+    brand = (chosen.brand or "").strip()
+    model = (chosen.model or "").strip()
+    source = chosen.source
+
     if chosen.source in {"excel", "manual"}:
-        final_name = " ".join(
-            p for p in (chosen.title, chosen.model, chosen.brand) if p
-        ).strip()
-        brand_for_ntin = chosen.brand
-        model = chosen.model
-        excel_hit = chosen.source == "excel"
+        final_name = build_final_name(chosen.title, chosen.model, chosen.brand)
     else:
-        excel_match = search_excel(chosen.title, chosen.brand, cfg, query=parsed.cleaned)
-        if excel_match:
-            final_name = excel_match.formatted_name
-            brand_for_ntin = excel_match.brand or chosen.brand
-            model = excel_match.model
-            excel_hit = True
+        # Excel только если сильное совпадение по названию+бренду (score>=0.8)
+        excel_match = search_excel(chosen.title, chosen.brand, cfg, query=None)
+        min_override = float(cfg.get("excel_override_score") or 0.8)
+        if excel_match and excel_match.score >= min_override:
+            logger.info(
+                "Excel подтвердил выбор score=%.2f → %s",
+                excel_match.score,
+                excel_match.formatted_name,
+            )
+            base_name = excel_match.name
+            model = excel_match.model or model
+            brand = excel_match.brand or brand
+            source = "excel"
+            final_name = build_final_name(base_name, model, brand)
         else:
-            final_name = build_internet_name(chosen)
-            brand_for_ntin = chosen.brand
-            model = chosen.model
-            excel_hit = False
+            if excel_match:
+                # взять только модель из прайса при совпадении бренда
+                if excel_match.brand and brand and excel_match.brand.lower() == brand.lower():
+                    model = model or excel_match.model
+            final_name = build_final_name(base_name, model, brand)
 
     if not final_name:
         return {
@@ -178,9 +187,23 @@ def run(query: str, cfg: dict[str, Any], logger) -> dict[str, Any]:
             "ntin_missing": True,
         }
 
-    ntin_name = chosen.title
-    ntin = search_ntin(ntin_name, brand_for_ntin, cfg) or ""
-    ntin_missing = not bool(ntin)
+    # NTIN: короткий запрос «Название Модель Бренд»
+    ntin = ""
+    ntin_missing = True
+    if cfg.get("ntin_enabled", True):
+        ntin_cands = search_ntin_candidates(base_name, model, brand, cfg)
+        if len(ntin_cands) == 1:
+            ntin = ntin_cands[0].ntin
+            ntin_missing = False
+        elif len(ntin_cands) > 1:
+            picked = select_ntin(ntin_cands, build_final_name(short_product_name(base_name), model, brand))
+            if picked:
+                ntin = picked.ntin
+                ntin_missing = False
+            else:
+                ntin_missing = True
+        else:
+            ntin_missing = True
 
     payload = {
         "status": "ok",
@@ -193,9 +216,9 @@ def run(query: str, cfg: dict[str, Any], logger) -> dict[str, Any]:
         "barcode": barcode,
         "ntin": ntin,
         "ntin_missing": ntin_missing,
-        "brand": brand_for_ntin,
+        "brand": brand,
         "model": model,
-        "source": "excel" if excel_hit else chosen.source,
+        "source": source,
         "query": parsed.cleaned,
     }
     logger.info("Результат: %s", payload)
