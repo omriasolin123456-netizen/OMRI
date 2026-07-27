@@ -242,7 +242,7 @@ CheckPython() {
     }
     outLog := g_LogDir . "\python_check.log"
     FileDelete, %outLog%
-    RunWait, %comspec% /c %pyExe% -c "import sys; print(sys.version); import pandas, openpyxl, requests; print('deps OK')" 1>"%outLog%" 2>&1, %A_ScriptDir%, Hide UseErrorLevel
+    RunWait, %comspec% /c ""%pyExe%" -c "import sys; print(sys.version); import pandas, openpyxl, requests; print('deps OK')" 1>"%outLog%" 2>&1", %A_ScriptDir%, Hide UseErrorLevel
     code := ErrorLevel
     tail := ReadLogTail(outLog, 2000)
     if (code = 0)
@@ -252,7 +252,7 @@ CheckPython() {
 }
 
 ResolvePython() {
-    global g_Python, A_ScriptDir
+    global g_Python
     ; 1) Явный путь из config
     if (g_Python != "" && g_Python != "python" && g_Python != "py") {
         if FileExist(g_Python)

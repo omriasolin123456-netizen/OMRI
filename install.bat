@@ -1,48 +1,67 @@
 @echo off
-chcp 65001 >nul
+setlocal EnableExtensions
 cd /d "%~dp0"
 
-echo === Microinvest Parts Assistant: установка ===
+echo === Microinvest Parts Assistant: setup ===
+
+set "PY="
 where python >nul 2>&1
-if errorlevel 1 (
-  where py >nul 2>&1
-  if errorlevel 1 (
-    echo Python не найден в PATH. Установите Python 3.10+ с python.org
-    echo Обязательно отметьте "Add python.exe to PATH"
-    pause
-    exit /b 1
-  )
-  set PY=py -3
+if %ERRORLEVEL%==0 (
+  set "PY=python"
 ) else (
-  set PY=python
+  where py >nul 2>&1
+  if %ERRORLEVEL%==0 (
+    set "PY=py -3"
+  )
 )
 
-echo Используем: %PY%
+if not defined PY (
+  echo ERROR: Python not found in PATH.
+  echo Install Python 3.10+ from python.org
+  echo Enable checkbox: Add python.exe to PATH
+  echo Then run this file again.
+  pause
+  exit /b 1
+)
+
+echo Using: %PY%
+echo.
+
 %PY% -m pip install --upgrade pip
-%PY% -m pip install -r requirements.txt
 if errorlevel 1 (
-  echo Ошибка установки зависимостей.
+  echo ERROR: pip upgrade failed.
   pause
   exit /b 1
 )
 
-if not exist "price" mkdir price
-if not exist "logs" mkdir logs
+%PY% -m pip install -r "%~dp0requirements.txt"
+if errorlevel 1 (
+  echo ERROR: dependency install failed.
+  echo Try manually:
+  echo   %PY% -m pip install -r requirements.txt
+  pause
+  exit /b 1
+)
+
+if not exist "%~dp0price" mkdir "%~dp0price"
+if not exist "%~dp0logs" mkdir "%~dp0logs"
 
 echo.
-echo Проверка импорта...
-%PY% -c "import pandas, openpyxl, requests; print('OK', __import__('sys').version)"
+echo Checking imports...
+%PY% -c "import sys; import pandas; import openpyxl; import requests; print('OK', sys.version)"
 if errorlevel 1 (
-  echo Импорт не удался.
+  echo ERROR: Python imports failed.
   pause
   exit /b 1
 )
 
 echo.
-echo Готово.
-echo 1. Положите свои .xlsx прайсы в папку price\
-echo 2. При необходимости отредактируйте config.ini
-echo 3. Запустите MicroinvestAssistant.ahk
-echo 4. В трее: "Проверить Python" — убедиться что всё работает
-echo 5. В карточке товара Microinvest нажмите F8
+echo Setup complete.
+echo 1. Put your .xlsx files into folder: price
+echo 2. Edit config.ini if needed
+echo 3. Start MicroinvestAssistant.ahk or run.bat
+echo 4. Tray menu: Check Python
+echo 5. In Microinvest product card press F8
+echo.
 pause
+endlocal
