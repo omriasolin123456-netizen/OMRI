@@ -13,8 +13,8 @@
    «Название Модель //OEНомер// БРЕНД»
    → имя = «Название Модель БРЕНД»
 
-Каталожный № / Номер / OE НЕ используются для сопоставления
-с полем «Имя» Microinvest.
+Поиск штрихкода/кода из поля «Имя» идёт по ВСЕЙ строке Excel
+(номенклатура, Штрихкод, Номер, Артикул и любые другие колонки).
 
 Для скорости строится кэш индекса (logs/excel_index_cache.pkl) —
 повторный F8 ищет по кэшу за миллисекунды, пока файлы не менялись.
@@ -37,6 +37,13 @@ logger = logging.getLogger("microinvest_assistant")
 ProgressFn = Callable[[int, str], None]
 
 OE_SPLIT_RE = re.compile(r"\s*//\s*", re.UNICODE)
+# Версия индекса — при смене логики поиска кэш пересобирается
+INDEX_VERSION = 3
+# Хвостовой штрихкод/код после бренда: «WXQP 320029»
+TRAILING_CODE_RE = re.compile(
+    r"^(?P<brand>.+?)\s+(?P<code>[A-Za-zА-Яа-я0-9][A-Za-zА-Яа-я0-9\-/]{3,})$",
+    re.UNICODE,
+)
 
 
 @dataclass
@@ -125,21 +132,51 @@ def _score_row(
     return name_score
 
 
-def parse_slash_nomenclature(raw: str) -> tuple[str, str, str]:
-    """Разбор «Название Модель //OE...// БРЕНД» → (name_model, brand, model_hint)."""
+def split_brand_and_code(tail: str) -> tuple[str, str]:
+    """«WXQP 320029» → («WXQP», «320029»); «ENGLIIAN» → («ENGLIIAN», «»)."""
+    text = (tail or "").strip()
+    if not text:
+        return "", ""
+    m = TRAILING_CODE_RE.match(text)
+    if not m:
+        return text, ""
+    brand = m.group("brand").strip()
+    code = m.group("code").strip()
+    # Код должен быть «похож на штрихкод/артикул»: много цифр или длинный артикул
+    compact = re.sub(r"[^A-Za-zА-Яа-я0-9]", "", code)
+    digit_n = sum(ch.isdigit() for ch in compact)
+    if digit_n >= 4 or (len(compact) >= 5 and digit_n >= 3):
+        return brand, code
+    return text, ""
+
+
+def parse_slash_nomenclature(raw: str) -> tuple[str, str, str, str]:
+    """Разбор номенклатуры → (name_model, brand, model_hint, trailing_code).
+
+    Примеры:
+      «Радиатор … //OE191121253К// WXQP 320029»
+        → name, WXQP, '', 320029
+      «Амортизатор … //OE4A9513031B//ENGLIIAN»
+        → name, ENGLIIAN, '', ''
+    """
     text = str(raw or "").strip()
     if not text:
-        return "", "", ""
+        return "", "", "", ""
 
     parts = [p.strip() for p in OE_SPLIT_RE.split(text) if p.strip()]
     if len(parts) >= 3 and parts[1].upper().startswith("OE"):
         name_model = parts[0]
-        brand = parts[-1]
-        return name_model, brand, ""
+        brand, code = split_brand_and_code(parts[-1])
+        return name_model, brand, "", code
     if len(parts) == 2:
-        # «Название //БРЕНД» без OE
-        return parts[0], parts[1], ""
-    return text, "", ""
+        brand, code = split_brand_and_code(parts[1])
+        return parts[0], brand, "", code
+    # Без // — возможно «Название БРЕНД 320029» в конце
+    brand, code = split_brand_and_code(text)
+    if code:
+        # brand здесь на самом деле «всё до кода» — оставим как name, бренд пустой
+        return brand, "", "", code
+    return text, "", "", ""
 
 
 def detect_format(columns: list[str]) -> str:
@@ -284,6 +321,26 @@ def load_price_frames(
     return loaded
 
 
+
+def _cell_str(value: Any) -> str:
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return ""
+    text = str(value).strip()
+    if not text or text.lower() == "nan":
+        return ""
+    return text
+
+
+def _row_all_text(row: pd.Series, columns: list[str]) -> str:
+    """Все непустые ячейки строки — штрихкод находится в любой колонке."""
+    parts: list[str] = []
+    for c in columns:
+        s = _cell_str(row.get(c))
+        if s:
+            parts.append(s)
+    return " ".join(parts)
+
+
 @dataclass
 class IndexRow:
     name: str
@@ -305,42 +362,30 @@ def _build_index_rows(
     pct_from: int = 40,
     pct_to: int = 55,
 ) -> list[IndexRow]:
-    use_article_cols = bool(cfg.get("excel_search_article_columns", False))
+    """Индекс: ищем штрихкод/код по ВСЕМ ячейкам строки прайса."""
     rows: list[IndexRow] = []
     total = max(len(frames), 1)
     for i, (source, df, fmt) in enumerate(frames):
         columns = list(df.columns)
-        article_col = None
-        if use_article_cols:
-            article_col = _find_column(
-                columns,
-                ["Каталожный №", "Каталожный номер", "Номер", "Артикул", "OE", "OEM"],
-            )
-        raw_name_col = _find_column(
-            columns,
-            cfg.get("col_name")
-            or [
-                "Наименование товара",
-                "Товар",
-                "Номенклатура",
-                "Ценовая группа",
-            ],
-        )
         for _, row in df.iterrows():
             parsed = _row_from_format(row, columns, fmt, cfg)
-            if not parsed:
+            if parsed:
+                row_name, row_model, row_brand = parsed
+            else:
+                row_name = ""
+                row_model = ""
+                row_brand = ""
+                for c in columns:
+                    s = _cell_str(row.get(c))
+                    if s and not s.replace(".", "", 1).isdigit():
+                        row_name = s
+                        break
+                if not row_name:
+                    continue
+
+            blob = _row_all_text(row, columns)
+            if not blob.strip():
                 continue
-            row_name, row_model, row_brand = parsed
-            chunks = [row_name, row_model, row_brand]
-            if raw_name_col:
-                raw = row.get(raw_name_col)
-                if raw is not None and not (isinstance(raw, float) and pd.isna(raw)):
-                    chunks.append(str(raw))
-            if article_col:
-                av = row.get(article_col)
-                if av is not None and not (isinstance(av, float) and pd.isna(av)):
-                    chunks.append(str(av))
-            blob = " ".join(p for p in chunks if p)
             bn = _norm(blob)
             bc = re.sub(r"[^a-zA-Zа-яА-Я0-9]", "", bn)
             if not bn:
@@ -369,15 +414,14 @@ def get_excel_index(
     price_dir: Path = cfg["price_dir"]
     cache = _cache_path(cfg)
     sig = _file_signature(price_dir)
-    use_article = bool(cfg.get("excel_search_article_columns", False))
 
     if cache.exists():
         try:
             with cache.open("rb") as fh:
                 payload = pickle.load(fh)
             if (
-                payload.get("sig") == sig
-                and payload.get("use_article") == use_article
+                payload.get("version") == INDEX_VERSION
+                and payload.get("sig") == sig
                 and isinstance(payload.get("rows"), list)
             ):
                 if progress:
@@ -396,7 +440,7 @@ def get_excel_index(
         cache.parent.mkdir(parents=True, exist_ok=True)
         with cache.open("wb") as fh:
             pickle.dump(
-                {"sig": sig, "use_article": use_article, "rows": rows},
+                {"version": INDEX_VERSION, "sig": sig, "rows": rows},
                 fh,
                 protocol=pickle.HIGHEST_PROTOCOL,
             )
@@ -442,7 +486,6 @@ def _row_from_format(
     )
 
     if fmt == "slash_nomenclature":
-        # Берём самую «длинную» текстовую колонку / номенклатуру
         raw_col = col_name or _find_column(
             columns,
             [
@@ -452,12 +495,11 @@ def _row_from_format(
             ],
         )
         if not raw_col:
-            # первая колонка
             raw_col = columns[0] if columns else None
         if not raw_col:
             return None
-        raw = "" if pd.isna(row.get(raw_col)) else str(row.get(raw_col))
-        name_model, brand, _ = parse_slash_nomenclature(raw)
+        raw = _cell_str(row.get(raw_col))
+        name_model, brand, _, _code = parse_slash_nomenclature(raw)
         if not name_model:
             return None
         return name_model.strip(), "", brand.strip()
@@ -467,36 +509,27 @@ def _row_from_format(
         b_col = _find_column(columns, ["Производитель"]) or col_brand
         if not t_col:
             return None
-        name = "" if pd.isna(row.get(t_col)) else str(row.get(t_col)).strip()
-        brand = ""
-        if b_col:
-            brand = "" if pd.isna(row.get(b_col)) else str(row.get(b_col)).strip()
+        name = _cell_str(row.get(t_col))
+        brand = _cell_str(row.get(b_col)) if b_col else ""
         if not name:
             return None
-        # Модель уже внутри «Товар» — отдельное поле не дублируем
         return name, "", brand
 
-    # name_model_brand и unknown
     if not col_name:
         return None
-    name = "" if pd.isna(row.get(col_name)) else str(row.get(col_name)).strip()
+    name = _cell_str(row.get(col_name))
     if not name:
         return None
-    # Если в имени уже //OE// — разобрать
     if "//" in name:
-        name_model, brand2, _ = parse_slash_nomenclature(name)
+        name_model, brand2, _, _code = parse_slash_nomenclature(name)
         brand = brand2
         model = ""
         if col_brand and not brand:
-            brand = "" if pd.isna(row.get(col_brand)) else str(row.get(col_brand)).strip()
+            brand = _cell_str(row.get(col_brand))
         return name_model, model, brand
 
-    brand = ""
-    if col_brand:
-        brand = "" if pd.isna(row.get(col_brand)) else str(row.get(col_brand)).strip()
-    model = ""
-    if col_model:
-        model = "" if pd.isna(row.get(col_model)) else str(row.get(col_model)).strip()
+    brand = _cell_str(row.get(col_brand)) if col_brand else ""
+    model = _cell_str(row.get(col_model)) if col_model else ""
     return name, model, brand
 
 
@@ -507,9 +540,8 @@ def search_excel_candidates(
 ) -> list:
     """Кандидаты из ВАШИХ прайсов — главный источник нужной запчасти.
 
-    Ищем код из поля «Имя» внутри текста названия/модели/бренда/номенклатуры
-    (в т.ч. фрагмент //OE...//). Отдельные колонки «Каталожный №»/«Номер»
-    не используем, если excel_search_article_columns = false.
+    Код из поля «Имя» (штрихкод) ищем в любой ячейке строки прайса:
+    номенклатура, Штрихкод, Номер, Артикул, Каталожный № и т.д.
     """
     from web_search import PartCandidate
 
@@ -521,7 +553,7 @@ def search_excel_candidates(
         progress(10, "Супербыстрый поиск в ваших Excel…")
 
     index = get_excel_index(cfg, progress=progress)
-    out: list = []
+    scored: list[tuple[tuple, object]] = []
     seen: set[str] = set()
     qn = _norm(q)
     qc = re.sub(r"[^a-zA-Zа-яА-Я0-9]", "", qn)
@@ -536,22 +568,30 @@ def search_excel_candidates(
         if key in seen:
             continue
         seen.add(key)
-        out.append(
-            PartCandidate(
-                brand=row.brand,
-                article=q,
-                title=row.name,
-                model=row.model,
-                source="excel",
-                extra={"file": row.source, "match": "price"},
+        # Точное совпадение токена/компакта важнее подстроки
+        tokens = set(re.split(r"[^a-zA-Zа-яА-Я0-9]+", row.blob_norm))
+        exact_token = 0 if (qn in tokens or qc in tokens) else 1
+        # Более полное наименование — выше
+        rank = (exact_token, -len(row.name or ""), -len(row.brand or ""), row.name)
+        scored.append(
+            (
+                rank,
+                PartCandidate(
+                    brand=row.brand,
+                    article=q,
+                    title=row.name,
+                    model=row.model,
+                    source="excel",
+                    extra={"file": row.source, "match": "price"},
+                ),
             )
         )
-        if len(out) >= limit:
-            break
         if progress and i % step == 0:
-            # 55→70 пока сканируем индекс
             pct = 55 + int(15 * i / total)
-            progress(min(pct, 70), f"Сканирую прайс… найдено {len(out)}")
+            progress(min(pct, 70), f"Сканирую прайс… найдено {len(scored)}")
+
+    scored.sort(key=lambda x: x[0])
+    out = [c for _, c in scored[:limit]]
 
     if progress:
         if out:
