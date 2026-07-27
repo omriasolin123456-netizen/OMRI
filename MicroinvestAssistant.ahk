@@ -136,33 +136,28 @@ AssistFill() {
     if FileExist(g_ResultTxt)
         FileDelete, %g_ResultTxt%
 
-    scriptPath := A_ScriptDir . "\python\main.py"
-    if !FileExist(scriptPath) {
-        MsgBox, 16, Microinvest Assistant, Не найден python\main.py`nОжидался путь:`n%scriptPath%
+    launcher := A_ScriptDir . "\python\run_search.cmd"
+    if !FileExist(launcher) {
+        MsgBox, 16, Microinvest Assistant, Не найден python\run_search.cmd`n%launcher%
         return
     }
+
+    ; Запрос пишем в файл — пути с кириллицей (Админ) ломают аргументы cmd
+    queryFile := g_LogDir . "\query.txt"
+    oldEnc := A_FileEncoding
+    FileEncoding, UTF-8
+    FileDelete, %queryFile%
+    FileAppend, %originalQuery%, %queryFile%
+    FileEncoding, %oldEnc%
 
     TrayTip, Microinvest Assistant, Идёт поиск: %originalQuery% ..., 3, 1
-
-    pyExe := ResolvePython()
-    if (pyExe = "") {
-        MsgBox, 16, Microinvest Assistant, Python не найден.`n1) Установите Python 3 с python.org (галочка Add to PATH)`n2) Запустите install.bat`n3) Или укажите полный путь в config.ini:[python] executable
-        return
-    }
 
     outLog := g_LogDir . "\python_stdout.log"
     errLog := g_LogDir . "\python_stderr.log"
     runLog := g_LogDir . "\python_run.log"
-    FileDelete, %outLog%
-    FileDelete, %errLog%
-    FileDelete, %runLog%
-    FileAppend, Python=%pyExe%`r`nScript=%scriptPath%`r`nQuery=%originalQuery%`r`nConfig=%A_ScriptDir%\config.ini`r`nResult=%g_ResultFile%`r`nWorkDir=%A_ScriptDir%`r`n, %runLog%
 
-    ; cmd.exe /c с перенаправлением stdout/stderr в logs
-    cmd := """" . pyExe . """ -u """ . scriptPath . """ --query """ . EscapeArg(originalQuery) . """ --config """ . A_ScriptDir . "\config.ini"" --result """ . g_ResultFile . """ 1>""" . outLog . """ 2>""" . errLog . """"
-    RunWait, %comspec% /c %cmd%, %A_ScriptDir%, Hide UseErrorLevel
+    RunWait, "%launcher%", %A_ScriptDir%, Hide UseErrorLevel
     exitCode := ErrorLevel
-    FileAppend, ExitCode=%exitCode%`r`n, %runLog%
 
     status := ""
     message := ""
@@ -196,7 +191,7 @@ AssistFill() {
     } else {
         errTail := ReadLogTail(errLog, 1500)
         outTail := ReadLogTail(outLog, 800)
-        MsgBox, 16, Microinvest Assistant, Python не вернул результат.`nКод выхода: %exitCode%`nИнтерпретатор: %pyExe%`n`n--- stderr (logs\python_stderr.log) ---`n%errTail%`n`n--- stdout ---`n%outTail%`n`nТакже смотрите logs\python_run.log и logs\python_crash.log
+        MsgBox, 16, Microinvest Assistant, Python не вернул результат.`nКод выхода: %exitCode%`n`n--- stderr (logs\python_stderr.log) ---`n%errTail%`n`n--- stdout ---`n%outTail%`n`nТакже смотрите logs\python_run.log и logs\python_crash.log
         return
     }
 

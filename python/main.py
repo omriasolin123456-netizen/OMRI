@@ -197,17 +197,36 @@ def run(query: str, cfg: dict[str, Any], logger) -> dict[str, Any]:
 
 def _parse_argv(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Microinvest parts assistant")
-    parser.add_argument("--query", required=True, help="Значение из поля «Имя»")
+    parser.add_argument("--query", default=None, help="Значение из поля «Имя»")
+    parser.add_argument(
+        "--query-file",
+        default=None,
+        help="UTF-8 файл с запросом (надежнее путей с кириллицей)",
+    )
     parser.add_argument("--config", default=None, help="Путь к config.ini")
     parser.add_argument("--result", default=None, help="Путь к JSON-результату")
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if not args.query and not args.query_file:
+        parser.error("Нужен --query или --query-file")
+    if args.query_file:
+        qpath = Path(args.query_file)
+        args.query = qpath.read_text(encoding="utf-8-sig").strip()
+    return args
 
 
 def main(argv: list[str] | None = None) -> int:
     # Сначала парсим аргументы — чтобы даже при ошибке импорта знать куда писать
     try:
         args = _parse_argv(argv)
-    except SystemExit:
+    except SystemExit as exc:
+        # argparse error — попробуем всё же оставить след
+        code = int(exc.code) if isinstance(exc.code, int) else 3
+        if code != 0:
+            _emergency_result(
+                ROOT / "logs" / "last_result.json",
+                "",
+                "Ошибка аргументов. Нужен --query или --query-file.",
+            )
         raise
     except Exception as exc:
         _emergency_result(ROOT / "logs" / "last_result.json", "", f"Ошибка аргументов: {exc}")
