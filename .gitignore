@@ -1,0 +1,10 @@
+logs/
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+price/~$*
+logs/last_result.json
+*.log
+.DS_Store
