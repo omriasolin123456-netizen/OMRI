@@ -63,6 +63,8 @@ def select_candidate(candidates: Sequence[PartCandidate], query: str) -> PartCan
     for i, c in enumerate(candidates, start=1):
         if c.source == "excel":
             src = " [ВАШ ПРАЙС]"
+        elif c.source == "omega":
+            src = " [Omega]"
         elif c.source:
             src = f" [{c.source}]"
         else:

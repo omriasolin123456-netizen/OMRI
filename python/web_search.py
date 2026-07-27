@@ -113,30 +113,31 @@ def search_fapi(query: str, cfg: dict[str, Any]) -> list[PartCandidate]:
 
 
 def search_parts(variants: list[str], cfg: dict[str, Any]) -> list[PartCandidate]:
-    """Сначала ВАШ прайс (Excel), потом FAPI. Так выше шанс нужной запчасти."""
+    """Сначала прайс Excel, затем Omega API, затем FAPI."""
     from excel_search import search_excel_candidates
+    from omega_search import search_omega
 
     query = variants[0] if variants else ""
     if not query:
         return []
 
     excel = search_excel_candidates(query, cfg)
+    omega = search_omega(query, cfg)
     fapi = search_fapi(query, cfg)
 
     web: list[PartCandidate] = []
-    if not excel and not fapi and cfg.get("enable_web_enrichment", False):
+    if not excel and not omega and not fapi and cfg.get("enable_web_enrichment", False):
         web = _quick_web(query, cfg)
 
     prefer = soft_norm_article(query)
 
     def rank(c: PartCandidate) -> tuple:
-        # excel из прайса — всегда выше интернет-кроссов
-        src = {"excel": 0, "fapi": 1, "web": 2}.get(c.source, 9)
+        # excel → omega (ваши штрихкоды) → fapi → web
+        src = {"excel": 0, "omega": 1, "fapi": 2, "web": 3, "manual": 0}.get(c.source, 9)
         exact = 0 if soft_norm_article(c.article) == prefer else 1
         return (src, exact, c.brand, c.title)
 
-    merged = excel + fapi + web
-    # дедуп
+    merged = excel + omega + fapi + web
     seen: set[str] = set()
     uniq: list[PartCandidate] = []
     for c in merged:
