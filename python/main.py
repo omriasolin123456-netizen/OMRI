@@ -132,17 +132,13 @@ def run(query: str, cfg: dict[str, Any], logger) -> dict[str, Any]:
             "ntin_missing": True,
         }
 
-    mode = (cfg.get("selection_mode") or "auto_single").lower()
-    chosen: PartCandidate | None
-    if len(candidates) == 1 and mode == "auto_single":
-        chosen = candidates[0]
-    else:
-        chosen = select_candidate(candidates, parsed.cleaned)
+    # Всегда показываем выбор — автовыбор по FAPI часто даёт не тот товар
+    chosen = select_candidate(candidates, parsed.cleaned)
 
     if chosen is None:
         return {
             "status": "cancelled",
-            "message": "Выбор отменён пользователем.",
+            "message": "Подходящий товар не выбран. Данные в Microinvest не изменены.",
             "name": "",
             "barcode": barcode,
             "ntin": "",
@@ -151,15 +147,26 @@ def run(query: str, cfg: dict[str, Any], logger) -> dict[str, Any]:
 
     logger.info("Выбран: %s", chosen.display)
 
-    excel_hit = search_excel(chosen.title, chosen.brand, cfg, query=parsed.cleaned)
-    if excel_hit:
-        final_name = excel_hit.formatted_name
-        brand_for_ntin = excel_hit.brand or chosen.brand
-        model = excel_hit.model
-    else:
-        final_name = build_internet_name(chosen)
+    # Если выбрали строку из Excel или ручной ввод — формат «Наименование Модель Бренд»
+    if chosen.source in {"excel", "manual"}:
+        final_name = " ".join(
+            p for p in (chosen.title, chosen.model, chosen.brand) if p
+        ).strip()
         brand_for_ntin = chosen.brand
         model = chosen.model
+        excel_hit = chosen.source == "excel"
+    else:
+        excel_match = search_excel(chosen.title, chosen.brand, cfg, query=parsed.cleaned)
+        if excel_match:
+            final_name = excel_match.formatted_name
+            brand_for_ntin = excel_match.brand or chosen.brand
+            model = excel_match.model
+            excel_hit = True
+        else:
+            final_name = build_internet_name(chosen)
+            brand_for_ntin = chosen.brand
+            model = chosen.model
+            excel_hit = False
 
     if not final_name:
         return {
@@ -171,7 +178,7 @@ def run(query: str, cfg: dict[str, Any], logger) -> dict[str, Any]:
             "ntin_missing": True,
         }
 
-    ntin_name = excel_hit.name if excel_hit else chosen.title
+    ntin_name = chosen.title
     ntin = search_ntin(ntin_name, brand_for_ntin, cfg) or ""
     ntin_missing = not bool(ntin)
 

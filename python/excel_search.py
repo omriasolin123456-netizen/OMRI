@@ -319,6 +319,53 @@ def _row_from_format(
     return name, model, brand
 
 
+def search_excel_candidates(query: str, cfg: dict[str, Any]) -> list:
+    """Кандидаты из прайсов, если запрос встречается в названии/модели/бренде (не в каталоге)."""
+    from web_search import PartCandidate
+
+    q = (query or "").strip()
+    if len(q) < 3:
+        return []
+
+    price_dir: Path = cfg["price_dir"]
+    frames = load_price_frames(price_dir)
+    out: list = []
+    seen: set[str] = set()
+    qn = _norm(q)
+    qc = re.sub(r"[^a-zA-Zа-яА-Я0-9]", "", qn)
+
+    for source, df, fmt in frames:
+        columns = list(df.columns)
+        for _, row in df.iterrows():
+            parsed = _row_from_format(row, columns, fmt, cfg)
+            if not parsed:
+                continue
+            row_name, row_model, row_brand = parsed
+            blob = " ".join(p for p in (row_name, row_model, row_brand) if p)
+            bn = _norm(blob)
+            bc = re.sub(r"[^a-zA-Zа-яА-Я0-9]", "", bn)
+            if qn not in bn and qc not in bc:
+                continue
+            key = f"{row_name}|{row_brand}|{row_model}".upper()
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(
+                PartCandidate(
+                    brand=row_brand,
+                    article=q,
+                    title=row_name,
+                    model=row_model,
+                    source="excel",
+                    extra={"file": source},
+                )
+            )
+            if len(out) >= 10:
+                return out
+    logger.info("Excel-кандидаты по запросу «%s»: %s", q, len(out))
+    return out
+
+
 def search_excel(
     title: str,
     brand: str,
