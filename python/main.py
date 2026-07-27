@@ -10,19 +10,53 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import traceback
 from pathlib import Path
 from typing import Any
 
-# Чтобы импорты работали при запуске python python/main.py
-sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from config_loader import load_config
-from excel_search import search_excel
-from logger_setup import setup_logger
-from ntin_search import search_ntin
-from query_parser import clean_query, looks_like_part_number
-from ui_select import select_candidate
-from web_search import PartCandidate, search_parts
+def _bootstrap_paths() -> Path:
+    here = Path(__file__).resolve().parent
+    sys.path.insert(0, str(here))
+    return here
+
+
+HERE = _bootstrap_paths()
+ROOT = HERE.parent
+
+
+def _emergency_result(result_path: Path | None, query: str, message: str) -> None:
+    """Пишет результат даже при падении импортов — чтобы AHK не говорил «нет результата»."""
+    path = result_path or (ROOT / "logs" / "last_result.json")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "status": "error",
+            "message": message,
+            "name": "",
+            "barcode": query,
+            "ntin": "",
+            "ntin_missing": True,
+        }
+        path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            encoding="utf-8-sig",
+        )
+        txt = path.parent / "last_result.txt"
+        lines = [
+            f"status={payload['status']}",
+            f"message={payload['message']}",
+            f"name=",
+            f"barcode={query}",
+            f"ntin=",
+            f"ntin_missing=true",
+        ]
+        txt.write_text("\n".join(lines) + "\n", encoding="utf-16")
+        # Также в лог
+        log = path.parent / "python_crash.log"
+        log.write_text(message, encoding="utf-8")
+    except Exception:
+        pass
 
 
 def write_result(path: Path, payload: dict[str, Any]) -> None:
@@ -32,10 +66,7 @@ def write_result(path: Path, payload: dict[str, Any]) -> None:
         json.dumps(payload, ensure_ascii=False, indent=2),
         encoding="utf-8-sig",
     )
-    # UTF-16 LE с BOM — AHK FileEncoding UTF-16 читает кириллицу без искажений
-    txt_path = path.with_suffix(".txt")
-    if txt_path.name == "last_result.txt" or path.suffix.lower() == ".json":
-        txt_path = path.parent / "last_result.txt"
+    txt_path = path.parent / "last_result.txt"
     lines = [
         f"status={payload.get('status', '')}",
         f"message={payload.get('message', '')}",
@@ -47,13 +78,10 @@ def write_result(path: Path, payload: dict[str, Any]) -> None:
     txt_path.write_text("\n".join(lines) + "\n", encoding="utf-16")
 
 
-def build_internet_name(cand: PartCandidate) -> str:
-    """Имя из интернет-источника, пока нет приоритетного Excel."""
-    # Порядок близок к целевому: Наименование [артикул] Бренд
-    title = cand.title.strip()
-    brand = cand.brand.strip()
-    article = cand.article.strip()
-    # Если артикул уже есть в title — не дублируем
+def build_internet_name(cand: Any) -> str:
+    title = (cand.title or "").strip()
+    brand = (cand.brand or "").strip()
+    article = (cand.article or "").strip()
     bits: list[str] = []
     if title:
         bits.append(title)
@@ -65,9 +93,20 @@ def build_internet_name(cand: PartCandidate) -> str:
 
 
 def run(query: str, cfg: dict[str, Any], logger) -> dict[str, Any]:
+    from excel_search import search_excel
+    from ntin_search import search_ntin
+    from query_parser import clean_query, looks_like_part_number
+    from ui_select import select_candidate
+    from web_search import PartCandidate, search_parts
+
     parsed = clean_query(query)
-    barcode = parsed.raw  # исходное значение поля «Имя» → Штрихкод
-    logger.info("Старт поиска. raw=%r cleaned=%r variants=%s", parsed.raw, parsed.cleaned, parsed.variants)
+    barcode = parsed.raw
+    logger.info(
+        "Старт поиска. raw=%r cleaned=%r variants=%s",
+        parsed.raw,
+        parsed.cleaned,
+        parsed.variants,
+    )
 
     if not parsed.cleaned:
         return {
@@ -93,7 +132,6 @@ def run(query: str, cfg: dict[str, Any], logger) -> dict[str, Any]:
             "ntin_missing": True,
         }
 
-    # Выбор варианта
     mode = (cfg.get("selection_mode") or "auto_single").lower()
     chosen: PartCandidate | None
     if len(candidates) == 1 and mode == "auto_single":
@@ -113,8 +151,7 @@ def run(query: str, cfg: dict[str, Any], logger) -> dict[str, Any]:
 
     logger.info("Выбран: %s", chosen.display)
 
-    # Excel — приоритетный источник названия (Наименование Модель Бренд)
-    excel_hit = search_excel(chosen.title, chosen.brand, cfg)
+    excel_hit = search_excel(chosen.title, chosen.brand, cfg, query=parsed.cleaned)
     if excel_hit:
         final_name = excel_hit.formatted_name
         brand_for_ntin = excel_hit.brand or chosen.brand
@@ -134,7 +171,6 @@ def run(query: str, cfg: dict[str, Any], logger) -> dict[str, Any]:
             "ntin_missing": True,
         }
 
-    # Для NTIN передаём наименование без повторного бренда в конце
     ntin_name = excel_hit.name if excel_hit else chosen.title
     ntin = search_ntin(ntin_name, brand_for_ntin, cfg) or ""
     ntin_missing = not bool(ntin)
@@ -159,16 +195,50 @@ def run(query: str, cfg: dict[str, Any], logger) -> dict[str, Any]:
     return payload
 
 
-def main(argv: list[str] | None = None) -> int:
+def _parse_argv(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Microinvest parts assistant")
     parser.add_argument("--query", required=True, help="Значение из поля «Имя»")
     parser.add_argument("--config", default=None, help="Путь к config.ini")
     parser.add_argument("--result", default=None, help="Путь к JSON-результату")
-    args = parser.parse_args(argv)
+    return parser.parse_args(argv)
 
-    cfg = load_config(args.config)
-    logger = setup_logger(cfg["log_dir"])
-    result_path = Path(args.result) if args.result else cfg["result_file"]
+
+def main(argv: list[str] | None = None) -> int:
+    # Сначала парсим аргументы — чтобы даже при ошибке импорта знать куда писать
+    try:
+        args = _parse_argv(argv)
+    except SystemExit:
+        raise
+    except Exception as exc:
+        _emergency_result(ROOT / "logs" / "last_result.json", "", f"Ошибка аргументов: {exc}")
+        return 3
+
+    result_path = Path(args.result) if args.result else (ROOT / "logs" / "last_result.json")
+    result_path.parent.mkdir(parents=True, exist_ok=True)
+
+    try:
+        from config_loader import load_config
+        from logger_setup import setup_logger
+    except Exception as exc:
+        msg = f"Не удалось импортировать модули. Установите зависимости: pip install -r requirements.txt\n{exc}\n{traceback.format_exc()}"
+        _emergency_result(result_path, args.query, msg)
+        print(msg, file=sys.stderr)
+        return 3
+
+    try:
+        cfg = load_config(args.config)
+        logger = setup_logger(cfg["log_dir"])
+        if args.result:
+            result_path = Path(args.result)
+        else:
+            result_path = cfg["result_file"]
+        result_path.parent.mkdir(parents=True, exist_ok=True)
+        logger.info("Python OK. query=%r result=%s", args.query, result_path)
+    except Exception as exc:
+        msg = f"Ошибка конфигурации: {exc}\n{traceback.format_exc()}"
+        _emergency_result(result_path, args.query, msg)
+        print(msg, file=sys.stderr)
+        return 3
 
     try:
         payload = run(args.query, cfg, logger)
@@ -183,7 +253,13 @@ def main(argv: list[str] | None = None) -> int:
             "ntin_missing": True,
         }
 
-    write_result(result_path, payload)
+    try:
+        write_result(result_path, payload)
+    except Exception as exc:
+        logger.exception("Не удалось записать результат: %s", exc)
+        _emergency_result(result_path, args.query, f"Не удалось записать результат: {exc}")
+        return 3
+
     print(json.dumps(payload, ensure_ascii=False))
     if payload.get("status") == "ok":
         return 0
@@ -195,4 +271,14 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except SystemExit:
+        raise
+    except Exception as exc:
+        _emergency_result(
+            ROOT / "logs" / "last_result.json",
+            "",
+            f"Фатальная ошибка: {exc}\n{traceback.format_exc()}",
+        )
+        raise

@@ -1,9 +1,20 @@
 """Поиск по локальным Excel-прайсам в папке price.
 
-Важно: артикул / номер каталога в файлах НЕ сопоставляются с полем «Имя»
-(исходным штрихкодом). Сопоставление только по найденному наименованию и бренду.
+Поддерживаемые форматы прайсов (по реальным базам):
 
-Итоговое имя для Microinvest: «Наименование товара Модель Бренд».
+1) Производитель | Товар | Каталожный № | ...
+   → имя = «Товар Производитель» (модель уже внутри «Товар»)
+
+2) Номер | Наименование товара | Мадель | Бренд | ...
+   → имя = «Наименование товара Мадель Бренд»
+   (опечатка «Мадель» поддержана)
+
+3) «Ценовая группа/ Номенклатура/...»:
+   «Название Модель //OEНомер// БРЕНД»
+   → имя = «Название Модель БРЕНД»
+
+Каталожный № / Номер / OE НЕ используются для сопоставления
+с полем «Имя» Microinvest.
 """
 from __future__ import annotations
 
@@ -17,6 +28,8 @@ import pandas as pd
 
 logger = logging.getLogger("microinvest_assistant")
 
+OE_SPLIT_RE = re.compile(r"\s*//\s*", re.UNICODE)
+
 
 @dataclass
 class ExcelMatch:
@@ -25,12 +38,21 @@ class ExcelMatch:
     model: str
     source_file: str
     score: float
+    format_id: str = ""
 
     @property
     def formatted_name(self) -> str:
         """Порядок: Наименование товара Модель Бренд."""
         parts = [p.strip() for p in (self.name, self.model, self.brand) if p and str(p).strip()]
-        return " ".join(parts)
+        # Убрать дубли, если модель/бренд уже есть в name
+        cleaned: list[str] = []
+        acc = ""
+        for p in parts:
+            if acc and _norm(p) in _norm(acc):
+                continue
+            cleaned.append(p)
+            acc = " ".join(cleaned)
+        return " ".join(cleaned)
 
 
 def _norm(s: Any) -> str:
@@ -52,7 +74,6 @@ def _find_column(columns: list[str], aliases: list[str]) -> str | None:
         a = _norm(alias)
         if a in norm_cols:
             return norm_cols[a]
-    # частичное совпадение
     for alias in aliases:
         a = _norm(alias)
         for nc, orig in norm_cols.items():
@@ -67,7 +88,6 @@ def _score_row(
     want_title: str,
     want_brand: str,
 ) -> float:
-    """Оценка совпадения по названию и бренду (не по артикулу)."""
     tn = _tokens(want_title)
     rn = _tokens(row_name)
     if not rn or not tn:
@@ -75,7 +95,6 @@ def _score_row(
     else:
         inter = len(tn & rn)
         name_score = inter / max(len(tn), 1)
-        # бонус за вхождение строки целиком
         if _norm(want_title) and _norm(want_title) in _norm(row_name):
             name_score = max(name_score, 0.9)
         if _norm(row_name) and _norm(row_name) in _norm(want_title):
@@ -90,7 +109,6 @@ def _score_row(
         elif _tokens(wb) & _tokens(rb):
             brand_score = 0.7
 
-    # Если бренд известен с обеих сторон и не совпал — сильно штрафуем
     if wb and rb and brand_score == 0:
         return name_score * 0.35
 
@@ -99,38 +117,217 @@ def _score_row(
     return name_score
 
 
-def load_price_frames(price_dir: Path) -> list[tuple[str, pd.DataFrame, dict[str, str | None]]]:
+def parse_slash_nomenclature(raw: str) -> tuple[str, str, str]:
+    """Разбор «Название Модель //OE...// БРЕНД» → (name_model, brand, model_hint)."""
+    text = str(raw or "").strip()
+    if not text:
+        return "", "", ""
+
+    parts = [p.strip() for p in OE_SPLIT_RE.split(text) if p.strip()]
+    if len(parts) >= 3 and parts[1].upper().startswith("OE"):
+        name_model = parts[0]
+        brand = parts[-1]
+        return name_model, brand, ""
+    if len(parts) == 2:
+        # «Название //БРЕНД» без OE
+        return parts[0], parts[1], ""
+    return text, "", ""
+
+
+def detect_format(columns: list[str]) -> str:
+    """Определяет формат прайса по заголовкам."""
+    joined = " | ".join(_norm(c) for c in columns)
+
+    has_tovar = _find_column(columns, ["Товар"]) is not None
+    has_proizv = _find_column(columns, ["Производитель"]) is not None
+    has_name = _find_column(columns, ["Наименование товара", "Наименование"]) is not None
+    has_model = _find_column(columns, ["Мадель", "Модель", "МОДЕЛЬ АВТОМОБИЛЯ"]) is not None
+    has_brand = _find_column(columns, ["Бренд", "Brand"]) is not None
+    has_nomen = _find_column(
+        columns,
+        [
+            "Номенклатура",
+            "Ценовая группа",
+            "Характеристика номенклатуры",
+            "Ценовая группа/ Номенклатура/ Характеристика номенклатуры",
+        ],
+    ) is not None
+
+    if has_nomen and not has_name:
+        return "slash_nomenclature"
+    if has_name and (has_model or has_brand):
+        return "name_model_brand"
+    if has_tovar and has_proizv:
+        return "tovar_proizvoditel"
+    if "номенклатур" in joined or "ценовая группа" in joined:
+        return "slash_nomenclature"
+    if has_tovar:
+        return "tovar_proizvoditel"
+    if has_name:
+        return "name_model_brand"
+    return "unknown"
+
+
+def _normalize_header_row(df: pd.DataFrame) -> pd.DataFrame:
+    """Если первая строка — заголовок прайса, а колонки Unnamed — ищем строку заголовков."""
+    cols = [str(c) for c in df.columns]
+    unnamed = sum(1 for c in cols if c.lower().startswith("unnamed") or c.isdigit())
+    if unnamed < max(2, len(cols) // 2):
+        return df
+
+    # Ищем строку, похожую на заголовки
+    keywords = (
+        "товар",
+        "наименование",
+        "бренд",
+        "производитель",
+        "модель",
+        "мадель",
+        "номенклатур",
+        "номер",
+        "цена",
+    )
+    for i in range(min(8, len(df))):
+        row_vals = [str(v).strip() for v in df.iloc[i].tolist() if not pd.isna(v)]
+        score = sum(1 for v in row_vals if any(k in v.lower() for k in keywords))
+        if score >= 2:
+            new_df = df.iloc[i + 1 :].copy()
+            new_df.columns = [
+                str(v).strip() if not pd.isna(v) else f"col_{idx}"
+                for idx, v in enumerate(df.iloc[i].tolist())
+            ]
+            new_df.reset_index(drop=True, inplace=True)
+            return new_df
+    return df
+
+
+def load_price_frames(price_dir: Path) -> list[tuple[str, pd.DataFrame, str]]:
     files = sorted(price_dir.glob("*.xlsx")) + sorted(price_dir.glob("*.xls"))
-    loaded: list[tuple[str, pd.DataFrame, dict[str, str | None]]] = []
+    loaded: list[tuple[str, pd.DataFrame, str]] = []
     for fp in files:
         if fp.name.startswith("~$"):
             continue
         try:
-            # Читаем все листы
-            sheets = pd.read_excel(fp, sheet_name=None, dtype=str, engine="openpyxl")
+            if fp.suffix.lower() == ".xls":
+                sheets = pd.read_excel(fp, sheet_name=None, dtype=str, engine="xlrd")
+            else:
+                sheets = pd.read_excel(fp, sheet_name=None, dtype=str, engine="openpyxl")
         except Exception as exc:
-            logger.error("Не удалось открыть %s: %s", fp, exc)
-            continue
+            # Fallback без указания engine
+            try:
+                sheets = pd.read_excel(fp, sheet_name=None, dtype=str)
+            except Exception as exc2:
+                logger.error("Не удалось открыть %s: %s / %s", fp, exc, exc2)
+                continue
         for sheet_name, df in sheets.items():
             if df is None or df.empty:
                 continue
             df = df.copy()
             df.columns = [str(c).strip() for c in df.columns]
-            loaded.append((f"{fp.name}::{sheet_name}", df, {}))
+            df = _normalize_header_row(df)
+            df.columns = [str(c).strip() for c in df.columns]
+            fmt = detect_format(list(df.columns))
+            logger.info("Excel загружен: %s::%s формат=%s строк=%s", fp.name, sheet_name, fmt, len(df))
+            loaded.append((f"{fp.name}::{sheet_name}", df, fmt))
     return loaded
+
+
+def _row_from_format(
+    row: pd.Series,
+    columns: list[str],
+    fmt: str,
+    cfg: dict[str, Any],
+) -> tuple[str, str, str] | None:
+    """Возвращает (name, model, brand) для строки."""
+    col_name = _find_column(
+        columns,
+        cfg.get("col_name")
+        or [
+            "Наименование товара",
+            "Наименование",
+            "Товар",
+            "Номенклатура",
+            "Ценовая группа",
+        ],
+    )
+    col_brand = _find_column(
+        columns,
+        cfg.get("col_brand") or ["Бренд", "Производитель", "Фирма", "Brand"],
+    )
+    col_model = _find_column(
+        columns,
+        cfg.get("col_model")
+        or ["Мадель", "Модель", "МОДЕЛЬ АВТОМОБИЛЯ", "Модель автомобиля", "Model"],
+    )
+
+    if fmt == "slash_nomenclature":
+        # Берём самую «длинную» текстовую колонку / номенклатуру
+        raw_col = col_name or _find_column(
+            columns,
+            [
+                "Ценовая группа/ Номенклатура/ Характеристика номенклатуры",
+                "Номенклатура",
+                "Характеристика номенклатуры",
+            ],
+        )
+        if not raw_col:
+            # первая колонка
+            raw_col = columns[0] if columns else None
+        if not raw_col:
+            return None
+        raw = "" if pd.isna(row.get(raw_col)) else str(row.get(raw_col))
+        name_model, brand, _ = parse_slash_nomenclature(raw)
+        if not name_model:
+            return None
+        return name_model.strip(), "", brand.strip()
+
+    if fmt == "tovar_proizvoditel":
+        t_col = _find_column(columns, ["Товар"]) or col_name
+        b_col = _find_column(columns, ["Производитель"]) or col_brand
+        if not t_col:
+            return None
+        name = "" if pd.isna(row.get(t_col)) else str(row.get(t_col)).strip()
+        brand = ""
+        if b_col:
+            brand = "" if pd.isna(row.get(b_col)) else str(row.get(b_col)).strip()
+        if not name:
+            return None
+        # Модель уже внутри «Товар» — отдельное поле не дублируем
+        return name, "", brand
+
+    # name_model_brand и unknown
+    if not col_name:
+        return None
+    name = "" if pd.isna(row.get(col_name)) else str(row.get(col_name)).strip()
+    if not name:
+        return None
+    # Если в имени уже //OE// — разобрать
+    if "//" in name:
+        name_model, brand2, _ = parse_slash_nomenclature(name)
+        brand = brand2
+        model = ""
+        if col_brand and not brand:
+            brand = "" if pd.isna(row.get(col_brand)) else str(row.get(col_brand)).strip()
+        return name_model, model, brand
+
+    brand = ""
+    if col_brand:
+        brand = "" if pd.isna(row.get(col_brand)) else str(row.get(col_brand)).strip()
+    model = ""
+    if col_model:
+        model = "" if pd.isna(row.get(col_model)) else str(row.get(col_model)).strip()
+    return name, model, brand
 
 
 def search_excel(
     title: str,
     brand: str,
     cfg: dict[str, Any],
+    query: str | None = None,
 ) -> ExcelMatch | None:
     """Ищет лучшее совпадение в Excel по наименованию и бренду."""
     price_dir: Path = cfg["price_dir"]
     min_score = float(cfg.get("min_match_score") or 0.55)
-    col_name_aliases = cfg.get("col_name") or ["Наименование товара", "Наименование"]
-    col_brand_aliases = cfg.get("col_brand") or ["Бренд", "Производитель"]
-    col_model_aliases = cfg.get("col_model") or ["МОДЕЛЬ АВТОМОБИЛЯ", "Модель"]
 
     best: ExcelMatch | None = None
     frames = load_price_frames(price_dir)
@@ -138,27 +335,26 @@ def search_excel(
         logger.warning("В папке %s нет Excel-файлов", price_dir)
         return None
 
-    for source, df, _ in frames:
-        name_col = _find_column(list(df.columns), col_name_aliases)
-        brand_col = _find_column(list(df.columns), col_brand_aliases)
-        model_col = _find_column(list(df.columns), col_model_aliases)
-        if not name_col:
-            logger.warning("В %s не найдена колонка наименования", source)
-            continue
-
+    for source, df, fmt in frames:
+        columns = list(df.columns)
         for _, row in df.iterrows():
-            row_name = "" if pd.isna(row.get(name_col)) else str(row.get(name_col))
-            row_brand = ""
-            if brand_col:
-                row_brand = "" if pd.isna(row.get(brand_col)) else str(row.get(brand_col))
-            row_model = ""
-            if model_col:
-                row_model = "" if pd.isna(row.get(model_col)) else str(row.get(model_col))
-
+            parsed = _row_from_format(row, columns, fmt, cfg)
+            if not parsed:
+                continue
+            row_name, row_model, row_brand = parsed
             if not row_name.strip():
                 continue
 
-            score = _score_row(row_name, row_brand, title, brand)
+            # Для скоринга склеиваем name+model (модель может быть отдельно)
+            score_name = " ".join(p for p in (row_name, row_model) if p)
+            score = _score_row(score_name, row_brand, title, brand)
+
+            # Мягкий бонус: исходный запрос встречается в названии (не в каталожном №)
+            if query:
+                qn = _norm(query)
+                if qn and len(qn) >= 4 and qn in _norm(score_name):
+                    score = max(score, 0.6)
+
             if score < min_score:
                 continue
             if best is None or score > best.score:
@@ -168,12 +364,14 @@ def search_excel(
                     model=row_model.strip(),
                     source_file=source,
                     score=score,
+                    format_id=fmt,
                 )
 
     if best:
         logger.info(
-            "Excel: совпадение score=%.2f файл=%s → %s",
+            "Excel: совпадение score=%.2f fmt=%s файл=%s → %s",
             best.score,
+            best.format_id,
             best.source_file,
             best.formatted_name,
         )

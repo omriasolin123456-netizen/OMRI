@@ -3,7 +3,7 @@
 ; =============================================================================
 ; Microinvest Склад Pro — помощник заполнения карточек автозапчастей
 ; AutoHotkey UNICODE 1.1+ (AutoHotkeyU64.exe) / Windows 11 x64
-; Файл ДОЛЖЕН быть в UTF-8 с BOM — иначе кириллица отображается «иероглифами».
+; Файл ДОЛЖЕН быть в UTF-8 с BOM.
 ; =============================================================================
 FileEncoding, UTF-8
 SendMode Input
@@ -49,6 +49,7 @@ LoadConfig() {
         g_ResultFile := resultRel
     else
         g_ResultFile := A_ScriptDir . "\" . resultRel
+    StringReplace, g_ResultFile, g_ResultFile, /, \, All
 
     SplitPath, g_ResultFile, , resultDir
     g_ResultTxt := resultDir . "\last_result.txt"
@@ -57,6 +58,7 @@ LoadConfig() {
         g_LogDir := logRel
     else
         g_LogDir := A_ScriptDir . "\" . logRel
+    StringReplace, g_LogDir, g_LogDir, /, \, All
 
     if !FileExist(g_LogDir)
         FileCreateDir, %g_LogDir%
@@ -74,6 +76,7 @@ RegisterHotkey() {
     Menu, Tray, NoStandard
     Menu, Tray, Add, Запустить поиск, DoAssist
     Menu, Tray, Add, Диагностика полей, DoDiagnose
+    Menu, Tray, Add, Проверить Python, DoCheckPython
     Menu, Tray, Add, Перезагрузить настройки, ReloadConfig
     Menu, Tray, Add
     Menu, Tray, Add, Выход, ExitApp
@@ -97,13 +100,19 @@ DoDiagnose:
     DiagnoseFields()
 return
 
+DoCheckPython:
+    Critical, Off
+    CheckPython()
+return
+
 AssistFill() {
     global g_WindowTitle, g_FieldName, g_FieldBarcode, g_FieldNtin
     global g_Python, g_Timeout, g_ResultFile, g_ResultTxt, g_LogDir
     global g_ResolvedNameNN, g_ResolvedWinId
 
-    ; 1) Сначала читаем из ТЕКУЩЕГО активного окна (карточка товара),
-    ;    не переключаясь на главное окно Microinvest — иначе поле «Имя» кажется пустым.
+    if !FileExist(g_LogDir)
+        FileCreateDir, %g_LogDir%
+
     winId := FindCardWindow(g_FieldName)
     if (!winId) {
         MsgBox, 48, Microinvest Assistant, Не найдено окно карточки товара.`nОткройте карточку в Microinvest, кликните в поле «Имя» и нажмите F8 снова.`n`nЛибо: ПКМ по иконке в трее → Диагностика полей.
@@ -129,15 +138,31 @@ AssistFill() {
 
     scriptPath := A_ScriptDir . "\python\main.py"
     if !FileExist(scriptPath) {
-        MsgBox, 16, Microinvest Assistant, Не найден python\main.py
+        MsgBox, 16, Microinvest Assistant, Не найден python\main.py`nОжидался путь:`n%scriptPath%
         return
     }
 
     TrayTip, Microinvest Assistant, Идёт поиск: %originalQuery% ..., 3, 1
 
-    cmd := """" . g_Python . """ """ . scriptPath . """ --query """ . EscapeArg(originalQuery) . """ --config """ . A_ScriptDir . "\config.ini"" --result """ . g_ResultFile . """"
+    pyExe := ResolvePython()
+    if (pyExe = "") {
+        MsgBox, 16, Microinvest Assistant, Python не найден.`n1) Установите Python 3 с python.org (галочка Add to PATH)`n2) Запустите install.bat`n3) Или укажите полный путь в config.ini:[python] executable
+        return
+    }
+
+    outLog := g_LogDir . "\python_stdout.log"
+    errLog := g_LogDir . "\python_stderr.log"
+    runLog := g_LogDir . "\python_run.log"
+    FileDelete, %outLog%
+    FileDelete, %errLog%
+    FileDelete, %runLog%
+    FileAppend, Python=%pyExe%`r`nScript=%scriptPath%`r`nQuery=%originalQuery%`r`nConfig=%A_ScriptDir%\config.ini`r`nResult=%g_ResultFile%`r`nWorkDir=%A_ScriptDir%`r`n, %runLog%
+
+    ; cmd.exe /c с перенаправлением stdout/stderr в logs
+    cmd := """" . pyExe . """ -u """ . scriptPath . """ --query """ . EscapeArg(originalQuery) . """ --config """ . A_ScriptDir . "\config.ini"" --result """ . g_ResultFile . """ 1>""" . outLog . """ 2>""" . errLog . """"
     RunWait, %comspec% /c %cmd%, %A_ScriptDir%, Hide UseErrorLevel
     exitCode := ErrorLevel
+    FileAppend, ExitCode=%exitCode%`r`n, %runLog%
 
     status := ""
     message := ""
@@ -169,7 +194,9 @@ AssistFill() {
         ntin := JsonGet(jsonText, "ntin")
         ntinMissing := JsonGet(jsonText, "ntin_missing")
     } else {
-        MsgBox, 16, Microinvest Assistant, Python не вернул результат.`nКод выхода: %exitCode%`nСм. логи в папке logs\
+        errTail := ReadLogTail(errLog, 1500)
+        outTail := ReadLogTail(outLog, 800)
+        MsgBox, 16, Microinvest Assistant, Python не вернул результат.`nКод выхода: %exitCode%`nИнтерпретатор: %pyExe%`n`n--- stderr (logs\python_stderr.log) ---`n%errTail%`n`n--- stdout ---`n%outTail%`n`nТакже смотрите logs\python_run.log и logs\python_crash.log
         return
     }
 
@@ -185,7 +212,6 @@ AssistFill() {
         return
     }
 
-    ; Вернуть фокус на карточку перед записью
     if WinExist("ahk_id " . winId)
         WinActivate, ahk_id %winId%
 
@@ -207,12 +233,90 @@ AssistFill() {
     }
 }
 
+CheckPython() {
+    global g_LogDir
+    pyExe := ResolvePython()
+    if (pyExe = "") {
+        MsgBox, 16, Проверка Python, Python НЕ найден в PATH.`nУкажите полный путь в config.ini:`n[python]`nexecutable = C:\Path\to\python.exe
+        return
+    }
+    outLog := g_LogDir . "\python_check.log"
+    FileDelete, %outLog%
+    RunWait, %comspec% /c %pyExe% -c "import sys; print(sys.version); import pandas, openpyxl, requests; print('deps OK')" 1>"%outLog%" 2>&1, %A_ScriptDir%, Hide UseErrorLevel
+    code := ErrorLevel
+    tail := ReadLogTail(outLog, 2000)
+    if (code = 0)
+        MsgBox, 64, Проверка Python, OK: %pyExe%`n`n%tail%
+    else
+        MsgBox, 48, Проверка Python, Проблема (код %code%): %pyExe%`nЗапустите install.bat`n`n%tail%
+}
+
+ResolvePython() {
+    global g_Python, A_ScriptDir
+    ; 1) Явный путь из config
+    if (g_Python != "" && g_Python != "python" && g_Python != "py") {
+        if FileExist(g_Python)
+            return g_Python
+    }
+
+    ; 2) Локальный venv рядом со скриптом
+    venvPy := A_ScriptDir . "\venv\Scripts\python.exe"
+    if FileExist(venvPy)
+        return venvPy
+
+    ; 3) where python / py
+    tmp := A_Temp . "\mi_py_where.txt"
+    FileDelete, %tmp%
+    RunWait, %comspec% /c where python > "%tmp%" 2>nul, , Hide
+    FileRead, whereOut, %tmp%
+    Loop, Parse, whereOut, `n, `r
+    {
+        line := Trim(A_LoopField)
+        if (line != "" && FileExist(line) && !InStr(line, "WindowsApps"))
+            return line
+    }
+
+    FileDelete, %tmp%
+    RunWait, %comspec% /c where py > "%tmp%" 2>nul, , Hide
+    FileRead, whereOut, %tmp%
+    if (Trim(whereOut) != "") {
+        ; py launcher
+        RunWait, %comspec% /c py -3 -c "print(1)", , Hide UseErrorLevel
+        if (ErrorLevel = 0)
+            return "py"
+    }
+
+    ; 4) Последняя попытка — просто python
+    RunWait, %comspec% /c python -c "print(1)", , Hide UseErrorLevel
+    if (ErrorLevel = 0)
+        return "python"
+
+    return ""
+}
+
+ReadLogTail(path, maxChars := 1000) {
+    if !FileExist(path)
+        return "(файл отсутствует)"
+    oldEnc := A_FileEncoding
+    FileEncoding, UTF-8
+    FileRead, data, %path%
+    if (ErrorLevel || data = "") {
+        FileEncoding, CP866
+        FileRead, data, %path%
+    }
+    FileEncoding, %oldEnc%
+    if (data = "")
+        return "(пусто)"
+    if (StrLen(data) > maxChars)
+        data := SubStr(data, StrLen(data) - maxChars + 1)
+    return data
+}
+
 ; --- Поиск окна карточки ----------------------------------------------------
 
 FindCardWindow(preferredClassNN) {
     global g_WindowTitle
 
-    ; A) Активное окно — самый частый случай (пользователь уже в карточке)
     WinGet, activeId, ID, A
     if (activeId && WindowHasEdit(activeId, preferredClassNN))
         return activeId
@@ -221,7 +325,6 @@ FindCardWindow(preferredClassNN) {
     if (activeId && GetFocusedEditText(activeId) != "")
         return activeId
 
-    ; B) Все окна того же процесса (диалог карточки / MDI)
     if (activeId) {
         WinGet, pid, PID, ahk_id %activeId%
         found := FindWindowInPid(pid, preferredClassNN)
@@ -229,7 +332,6 @@ FindCardWindow(preferredClassNN) {
             return found
     }
 
-    ; C) Окна с «Microinvest» в заголовке
     WinGet, idList, List, %g_WindowTitle%
     Loop, %idList% {
         thisId := idList%A_Index%
@@ -239,7 +341,6 @@ FindCardWindow(preferredClassNN) {
             return thisId
     }
 
-    ; D) Любое видимое окно с нужным суффиксом _adNNN
     WinGet, idList2, List
     Loop, %idList2% {
         thisId := idList2%A_Index%
@@ -267,8 +368,6 @@ WindowHasEdit(winId, classNN) {
     return nn != ""
 }
 
-; --- Чтение / запись Edit ---------------------------------------------------
-
 ReadEditText(winId, classNN, allowFocusFallback := false) {
     global g_ResolvedNameNN
     nn := ResolveEditNN(winId, classNN)
@@ -278,7 +377,6 @@ ReadEditText(winId, classNN, allowFocusFallback := false) {
         if (text != "")
             return text
     }
-
     if (allowFocusFallback) {
         text := GetFocusedEditText(winId)
         if (text != "")
@@ -295,26 +393,22 @@ GetFocusedEditText(winId) {
 }
 
 GetTextByNN(winId, classNN) {
-    ; 1) Обычный ControlGetText
     text := ""
     ControlGetText, text, %classNN%, ahk_id %winId%
     if (text != "")
         return text
 
-    ; 2) Unicode WM_GETTEXT — надёжнее для WinForms
     ControlGet, hCtrl, Hwnd, , %classNN%, ahk_id %winId%
     if (!hCtrl)
         return ""
 
-    SendMessage, 0x000E, 0, 0, , ahk_id %hCtrl%  ; WM_GETTEXTLENGTH
+    SendMessage, 0x000E, 0, 0, , ahk_id %hCtrl%
     len := ErrorLevel
-    if (len = "" || len = "FAIL" || len = 0) {
-        ; Иногда length=0 ошибочно — пробуем буфер фиксированного размера
+    if (len = "" || len = "FAIL" || len = 0)
         len := 512
-    }
     chars := len + 1
     VarSetCapacity(buf, chars * 2, 0)
-    SendMessage, 0x000D, chars, &buf, , ahk_id %hCtrl%  ; WM_GETTEXT
+    SendMessage, 0x000D, chars, &buf, , ahk_id %hCtrl%
     text := StrGet(&buf, "UTF-16")
     return text
 }
@@ -326,7 +420,7 @@ WriteEditText(winId, classNN, value) {
 
     ControlGet, hwnd, Hwnd, , %nn%, ahk_id %winId%
     if (hwnd) {
-        SendMessage, 0x000C, 0, &value, , ahk_id %hwnd%  ; WM_SETTEXT
+        SendMessage, 0x000C, 0, &value, , ahk_id %hwnd%
         got := GetTextByNN(winId, nn)
         if (got = value)
             return true
@@ -351,12 +445,10 @@ WriteEditText(winId, classNN, value) {
     return true
 }
 
-; Ищет актуальный ClassNN: точное имя → тот же _adNNN → любой EDIT.app.*_adNNN
 ResolveEditNN(winId, classNN) {
     if (classNN = "")
         return ""
 
-    ; Точное совпадение
     ControlGet, hwnd, Hwnd, , %classNN%, ahk_id %winId%
     if (!ErrorLevel && hwnd)
         return classNN
@@ -374,13 +466,11 @@ ResolveEditNN(winId, classNN) {
         if !InStr(ctrl, "EDIT")
             continue
         if RegExMatch(ctrl, "i)" . suffix . "$") {
-            ; Предпочитаем WindowsForms10.EDIT
             if InStr(ctrl, "WindowsForms") && InStr(ctrl, "EDIT")
                 return ctrl
             if (exact = "")
                 exact := ctrl
         }
-        ; Иногда суффикс пишется иначе — сравнить только цифры ad
         if (fuzzy = "" && RegExMatch(suffix, "i)_ad(\d+)$", sm) && RegExMatch(ctrl, "i)_ad" . sm1 . "$"))
             fuzzy := ctrl
     }
@@ -414,7 +504,6 @@ DumpEditControls(winId) {
             out .= "...`n"
             break
         }
-        ; Обрезать длинные значения
         show := val
         if (StrLen(show) > 40)
             show := SubStr(show, 1, 40) . "..."
