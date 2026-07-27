@@ -1,9 +1,10 @@
 """
 Точка входа помощника Microinvest Склад Pro.
 
-Читает исходный запрос из поля «Имя», ищет автозапчасть, сверяет с Excel,
-получает NTIN и пишет JSON-результат для AutoHotkey.
-Кэш товаров не используется — каждый запуск выполняет новый поиск.
+Читает исходный запрос из поля «Имя», ищет автозапчасть:
+  1) супербыстро в Excel (ваши прайсы)
+  2) если нет подходящего — быстрый интернет (FAPI)
+показывает живой прогресс % и пишет JSON для AutoHotkey.
 """
 from __future__ import annotations
 
@@ -52,7 +53,6 @@ def _emergency_result(result_path: Path | None, query: str, message: str) -> Non
             f"ntin_missing=true",
         ]
         txt.write_text("\n".join(lines) + "\n", encoding="utf-16")
-        # Также в лог
         log = path.parent / "python_crash.log"
         log.write_text(message, encoding="utf-8")
     except Exception:
@@ -97,10 +97,46 @@ def build_final_name(name: str, model: str, brand: str) -> str:
 def run(query: str, cfg: dict[str, Any], logger) -> dict[str, Any]:
     from excel_search import search_excel
     from ntin_search import search_ntin_candidates, short_product_name
+    from progress_ui import ProgressUI
     from query_parser import clean_query, looks_like_part_number
     from ui_select import select_candidate, select_ntin
     from web_search import search_parts
 
+    progress = ProgressUI("F8 — поиск запчасти")
+    try:
+        return _run_with_progress(
+            query,
+            cfg,
+            logger,
+            progress,
+            search_excel,
+            search_ntin_candidates,
+            short_product_name,
+            select_candidate,
+            select_ntin,
+            search_parts,
+            clean_query,
+            looks_like_part_number,
+        )
+    finally:
+        progress.close()
+
+
+def _run_with_progress(
+    query: str,
+    cfg: dict[str, Any],
+    logger,
+    progress,
+    search_excel,
+    search_ntin_candidates,
+    short_product_name,
+    select_candidate,
+    select_ntin,
+    search_parts,
+    clean_query,
+    looks_like_part_number,
+) -> dict[str, Any]:
+    progress.set(2, "Читаю запрос…")
     parsed = clean_query(query)
     barcode = parsed.raw
     logger.info(
@@ -111,6 +147,7 @@ def run(query: str, cfg: dict[str, Any], logger) -> dict[str, Any]:
     )
 
     if not parsed.cleaned:
+        progress.set(100, "Пустой запрос")
         return {
             "status": "not_found",
             "message": f"Товар по запросу {query} не найден.",
@@ -123,8 +160,12 @@ def run(query: str, cfg: dict[str, Any], logger) -> dict[str, Any]:
     if not looks_like_part_number(parsed.cleaned):
         logger.warning("Запрос не похож на номер запчасти: %s", parsed.cleaned)
 
-    candidates = search_parts(parsed.variants, cfg)
+    def on_progress(pct: int, text: str) -> None:
+        progress.set(pct, text)
+
+    candidates = search_parts(parsed.variants, cfg, progress=on_progress)
     if not candidates:
+        progress.set(100, "Ничего не найдено")
         return {
             "status": "not_found",
             "message": f"Товар по запросу {parsed.cleaned} не найден.",
@@ -133,6 +174,10 @@ def run(query: str, cfg: dict[str, Any], logger) -> dict[str, Any]:
             "ntin": "",
             "ntin_missing": True,
         }
+
+    # Скрыть прогресс перед окном выбора
+    progress.set(92, "Выберите товар…")
+    progress.close()
 
     chosen = select_candidate(candidates, parsed.cleaned)
     if chosen is None:
@@ -147,82 +192,97 @@ def run(query: str, cfg: dict[str, Any], logger) -> dict[str, Any]:
 
     logger.info("Выбран: %s", chosen.display)
 
-    # База имени — то, что выбрал пользователь (не подменять чужой строкой Excel)
-    base_name = chosen.title
-    brand = (chosen.brand or "").strip()
-    model = (chosen.model or "").strip()
-    source = chosen.source
+    # Новый прогресс для NTIN
+    from progress_ui import ProgressUI as ProgressUI2
 
-    if chosen.source in {"excel", "manual"}:
-        final_name = build_final_name(chosen.title, chosen.model, chosen.brand)
-    else:
-        # Excel только если сильное совпадение по названию+бренду (score>=0.8)
-        excel_match = search_excel(chosen.title, chosen.brand, cfg, query=None)
-        min_override = float(cfg.get("excel_override_score") or 0.8)
-        if excel_match and excel_match.score >= min_override:
-            logger.info(
-                "Excel подтвердил выбор score=%.2f → %s",
-                excel_match.score,
-                excel_match.formatted_name,
-            )
-            base_name = excel_match.name
-            model = excel_match.model or model
-            brand = excel_match.brand or brand
-            source = "excel"
-            final_name = build_final_name(base_name, model, brand)
+    progress2 = ProgressUI2("F8 — NTIN и финал")
+    try:
+        progress2.set(93, "Формирую наименование…")
+
+        base_name = chosen.title
+        brand = (chosen.brand or "").strip()
+        model = (chosen.model or "").strip()
+        source = chosen.source
+
+        if chosen.source in {"excel", "manual"}:
+            final_name = build_final_name(chosen.title, chosen.model, chosen.brand)
         else:
-            if excel_match:
-                # взять только модель из прайса при совпадении бренда
-                if excel_match.brand and brand and excel_match.brand.lower() == brand.lower():
-                    model = model or excel_match.model
-            final_name = build_final_name(base_name, model, brand)
+            excel_match = search_excel(chosen.title, chosen.brand, cfg, query=None)
+            min_override = float(cfg.get("excel_override_score") or 0.8)
+            if excel_match and excel_match.score >= min_override:
+                logger.info(
+                    "Excel подтвердил выбор score=%.2f → %s",
+                    excel_match.score,
+                    excel_match.formatted_name,
+                )
+                base_name = excel_match.name
+                model = excel_match.model or model
+                brand = excel_match.brand or brand
+                source = "excel"
+                final_name = build_final_name(base_name, model, brand)
+            else:
+                if excel_match:
+                    if excel_match.brand and brand and excel_match.brand.lower() == brand.lower():
+                        model = model or excel_match.model
+                final_name = build_final_name(base_name, model, brand)
 
-    if not final_name:
-        return {
-            "status": "not_found",
-            "message": f"Товар по запросу {parsed.cleaned} не найден.",
-            "name": "",
-            "barcode": barcode,
-            "ntin": "",
-            "ntin_missing": True,
-        }
+        if not final_name:
+            progress2.set(100, "Пустое имя")
+            return {
+                "status": "not_found",
+                "message": f"Товар по запросу {parsed.cleaned} не найден.",
+                "name": "",
+                "barcode": barcode,
+                "ntin": "",
+                "ntin_missing": True,
+            }
 
-    # NTIN: короткий запрос «Название Модель Бренд»
-    ntin = ""
-    ntin_missing = True
-    if cfg.get("ntin_enabled", True):
-        ntin_cands = search_ntin_candidates(base_name, model, brand, cfg)
-        if len(ntin_cands) == 1:
-            ntin = ntin_cands[0].ntin
-            ntin_missing = False
-        elif len(ntin_cands) > 1:
-            picked = select_ntin(ntin_cands, build_final_name(short_product_name(base_name), model, brand))
-            if picked:
-                ntin = picked.ntin
+        ntin = ""
+        ntin_missing = True
+        if cfg.get("ntin_enabled", True):
+            progress2.set(95, "Ищу NTIN в каталоге…")
+            ntin_cands = search_ntin_candidates(base_name, model, brand, cfg)
+            if len(ntin_cands) == 1:
+                ntin = ntin_cands[0].ntin
                 ntin_missing = False
+            elif len(ntin_cands) > 1:
+                progress2.close()
+                picked = select_ntin(
+                    ntin_cands,
+                    build_final_name(short_product_name(base_name), model, brand),
+                )
+                if picked:
+                    ntin = picked.ntin
+                    ntin_missing = False
+                else:
+                    ntin_missing = True
+                # прогресс уже закрыт
+                progress2 = ProgressUI2("F8 — запись результата")
             else:
                 ntin_missing = True
-        else:
-            ntin_missing = True
 
-    payload = {
-        "status": "ok",
-        "message": (
-            "Название найдено, NTIN отсутствует."
-            if ntin_missing
-            else "Карточка готова к заполнению."
-        ),
-        "name": final_name,
-        "barcode": barcode,
-        "ntin": ntin,
-        "ntin_missing": ntin_missing,
-        "brand": brand,
-        "model": model,
-        "source": source,
-        "query": parsed.cleaned,
-    }
-    logger.info("Результат: %s", payload)
-    return payload
+        progress2.set(99, "Сохраняю результат…")
+        payload = {
+            "status": "ok",
+            "message": (
+                "Название найдено, NTIN отсутствует."
+                if ntin_missing
+                else "Карточка готова к заполнению."
+            ),
+            "name": final_name,
+            "barcode": barcode,
+            "ntin": ntin,
+            "ntin_missing": ntin_missing,
+            "brand": brand,
+            "model": model,
+            "source": source,
+            "query": parsed.cleaned,
+        }
+        progress2.set(100, "Готово!")
+        logger.info("Результат: %s", payload)
+        return payload
+    finally:
+        progress2.close()
 
 
 def _parse_argv(argv: list[str] | None) -> argparse.Namespace:
@@ -245,11 +305,9 @@ def _parse_argv(argv: list[str] | None) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
-    # Сначала парсим аргументы — чтобы даже при ошибке импорта знать куда писать
     try:
         args = _parse_argv(argv)
     except SystemExit as exc:
-        # argparse error — попробуем всё же оставить след
         code = int(exc.code) if isinstance(exc.code, int) else 3
         if code != 0:
             _emergency_result(
@@ -269,7 +327,10 @@ def main(argv: list[str] | None = None) -> int:
         from config_loader import load_config
         from logger_setup import setup_logger
     except Exception as exc:
-        msg = f"Не удалось импортировать модули. Установите зависимости: pip install -r requirements.txt\n{exc}\n{traceback.format_exc()}"
+        msg = (
+            "Не удалось импортировать модули. Установите зависимости: "
+            f"pip install -r requirements.txt\n{exc}\n{traceback.format_exc()}"
+        )
         _emergency_result(result_path, args.query, msg)
         print(msg, file=sys.stderr)
         return 3

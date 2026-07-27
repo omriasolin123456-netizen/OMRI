@@ -1,14 +1,16 @@
-"""Быстрый поиск автозапчасти: FAPI (+ опционально веб)."""
+"""Быстрый поиск автозапчасти: сначала Excel, при отсутствии — интернет (FAPI)."""
 from __future__ import annotations
 
 import logging
 import re
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable
 
 import requests
 
 logger = logging.getLogger("microinvest_assistant")
+
+ProgressFn = Callable[[int, str], None]
 
 
 @dataclass
@@ -65,12 +67,20 @@ def article_compatible(article: str, query: str) -> bool:
     return False
 
 
-def search_fapi(query: str, cfg: dict[str, Any]) -> list[PartCandidate]:
+def search_fapi(
+    query: str,
+    cfg: dict[str, Any],
+    progress: ProgressFn | None = None,
+) -> list[PartCandidate]:
     key = cfg.get("fapi_key") or ""
     base = cfg.get("fapi_base") or "https://fapi.iisis.ru/fapi/v2"
-    timeout = float(cfg.get("http_timeout") or 8)
+    # Короткий таймаут — «супербыстрый» интернет
+    timeout = float(cfg.get("http_timeout") or 4)
     if not key:
         return []
+
+    if progress:
+        progress(78, "Интернет: запрос каталога…")
 
     try:
         resp = requests.get(
@@ -82,6 +92,8 @@ def search_fapi(query: str, cfg: dict[str, Any]) -> list[PartCandidate]:
         data = resp.json()
     except Exception as exc:
         logger.error("FAPI ошибка для %s: %s", query, exc)
+        if progress:
+            progress(85, "Интернет: ошибка / таймаут")
         return []
 
     manufacturers = {
@@ -109,35 +121,57 @@ def search_fapi(query: str, cfg: dict[str, Any]) -> list[PartCandidate]:
             )
         )
     logger.info("FAPI: %s шт. (отброшено %s) по «%s»", len(out), skipped, query)
+    if progress:
+        progress(88, f"Интернет: найдено {len(out)}")
     return out
 
 
-def search_parts(variants: list[str], cfg: dict[str, Any]) -> list[PartCandidate]:
-    """Сначала прайс Excel, затем Omega API, затем FAPI."""
+def search_parts(
+    variants: list[str],
+    cfg: dict[str, Any],
+    progress: ProgressFn | None = None,
+) -> list[PartCandidate]:
+    """1) Только Excel. 2) Если пусто — быстрый интернет (FAPI).
+
+    Omega и медленный DDG по умолчанию не вызываются.
+    """
     from excel_search import search_excel_candidates
-    from omega_search import search_omega
 
     query = variants[0] if variants else ""
     if not query:
         return []
 
-    excel = search_excel_candidates(query, cfg)
-    omega = search_omega(query, cfg)
-    fapi = search_fapi(query, cfg)
+    limit = int(cfg.get("max_candidates") or 12)
+
+    if progress:
+        progress(5, "Старт: сначала ваши Excel…")
+
+    excel = search_excel_candidates(query, cfg, progress=progress)
+    if excel:
+        if progress:
+            progress(90, f"Готово из Excel: {len(excel)} вариант(ов)")
+        return excel[:limit]
+
+    # Нет подходящего в Excel → интернет
+    if progress:
+        progress(74, "В Excel нет — быстрый поиск в интернете…")
+
+    fapi = search_fapi(query, cfg, progress=progress)
 
     web: list[PartCandidate] = []
-    if not excel and not omega and not fapi and cfg.get("enable_web_enrichment", False):
+    if not fapi and cfg.get("enable_web_enrichment", False):
+        if progress:
+            progress(86, "Доп. веб-поиск…")
         web = _quick_web(query, cfg)
 
     prefer = soft_norm_article(query)
 
     def rank(c: PartCandidate) -> tuple:
-        # excel → omega (ваши штрихкоды) → fapi → web
-        src = {"excel": 0, "omega": 1, "fapi": 2, "web": 3, "manual": 0}.get(c.source, 9)
+        src = {"excel": 0, "fapi": 1, "web": 2, "manual": 0, "omega": 3}.get(c.source, 9)
         exact = 0 if soft_norm_article(c.article) == prefer else 1
         return (src, exact, c.brand, c.title)
 
-    merged = excel + omega + fapi + web
+    merged = fapi + web
     seen: set[str] = set()
     uniq: list[PartCandidate] = []
     for c in merged:
@@ -147,7 +181,10 @@ def search_parts(variants: list[str], cfg: dict[str, Any]) -> list[PartCandidate
         seen.add(k)
         uniq.append(c)
     uniq.sort(key=rank)
-    return uniq[: int(cfg.get("max_candidates") or 12)]
+
+    if progress:
+        progress(90, f"Интернет готов: {len(uniq)} вариант(ов)")
+    return uniq[:limit]
 
 
 def _quick_web(query: str, cfg: dict[str, Any]) -> list[PartCandidate]:
@@ -155,7 +192,6 @@ def _quick_web(query: str, cfg: dict[str, Any]) -> list[PartCandidate]:
         from ddgs import DDGS  # type: ignore
     except ImportError:
         return []
-    timeout_note = float(cfg.get("http_timeout") or 8)
     out: list[PartCandidate] = []
     try:
         ddgs = DDGS()

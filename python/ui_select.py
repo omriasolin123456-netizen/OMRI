@@ -36,7 +36,7 @@ def select_candidate(candidates: Sequence[PartCandidate], query: str) -> PartCan
         frame,
         text=(
             f"Запрос: «{query}» — найдено: {len(candidates)}\n"
-            "Сверху обычно позиции из ВАШЕГО прайса (Excel) — выбирайте их в первую очередь.\n"
+            "Сначала искали в ВАШИХ Excel. Интернет — только если в прайсе ничего не нашлось.\n"
             "Если нужного нет — введите вручную: Наименование  Модель  Бренд."
         ),
         justify=tk.LEFT,
@@ -60,16 +60,16 @@ def select_candidate(candidates: Sequence[PartCandidate], query: str) -> PartCan
     scroll.config(command=lb.yview)
 
     if candidates:
-    for i, c in enumerate(candidates, start=1):
-        if c.source == "excel":
-            src = " [ВАШ ПРАЙС]"
-        elif c.source == "omega":
-            src = " [Omega]"
-        elif c.source:
-            src = f" [{c.source}]"
-        else:
-            src = ""
-        lb.insert(tk.END, f"{i}. {c.display}{src}")
+        for i, c in enumerate(candidates, start=1):
+            if c.source == "excel":
+                src = " [ВАШ ПРАЙС]"
+            elif c.source == "fapi":
+                src = " [интернет]"
+            elif c.source:
+                src = f" [{c.source}]"
+            else:
+                src = ""
+            lb.insert(tk.END, f"{i}. {c.display}{src}")
         lb.selection_set(0)
     else:
         lb.insert(tk.END, "(Автоматический поиск ничего подходящего не нашёл)")

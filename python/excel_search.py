@@ -15,18 +15,26 @@
 
 Каталожный № / Номер / OE НЕ используются для сопоставления
 с полем «Имя» Microinvest.
+
+Для скорости строится кэш индекса (logs/excel_index_cache.pkl) —
+повторный F8 ищет по кэшу за миллисекунды, пока файлы не менялись.
 """
 from __future__ import annotations
 
 import logging
+import pickle
 import re
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import pandas as pd
 
 logger = logging.getLogger("microinvest_assistant")
+
+ProgressFn = Callable[[int, str], None]
 
 OE_SPLIT_RE = re.compile(r"\s*//\s*", re.UNICODE)
 
@@ -201,35 +209,208 @@ def _normalize_header_row(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def load_price_frames(price_dir: Path) -> list[tuple[str, pd.DataFrame, str]]:
+def _list_price_files(price_dir: Path) -> list[Path]:
     files = sorted(price_dir.glob("*.xlsx")) + sorted(price_dir.glob("*.xls"))
-    loaded: list[tuple[str, pd.DataFrame, str]] = []
-    for fp in files:
-        if fp.name.startswith("~$"):
-            continue
+    return [fp for fp in files if not fp.name.startswith("~$")]
+
+
+def _file_signature(price_dir: Path) -> list[tuple[str, float, int]]:
+    """Подпись файлов прайса: имя, mtime, size — для инвалидации кэша."""
+    sig: list[tuple[str, float, int]] = []
+    for fp in _list_price_files(price_dir):
         try:
-            if fp.suffix.lower() == ".xls":
-                sheets = pd.read_excel(fp, sheet_name=None, dtype=str, engine="xlrd")
-            else:
-                sheets = pd.read_excel(fp, sheet_name=None, dtype=str, engine="openpyxl")
-        except Exception as exc:
-            # Fallback без указания engine
-            try:
-                sheets = pd.read_excel(fp, sheet_name=None, dtype=str)
-            except Exception as exc2:
-                logger.error("Не удалось открыть %s: %s / %s", fp, exc, exc2)
-                continue
-        for sheet_name, df in sheets.items():
-            if df is None or df.empty:
-                continue
-            df = df.copy()
-            df.columns = [str(c).strip() for c in df.columns]
-            df = _normalize_header_row(df)
-            df.columns = [str(c).strip() for c in df.columns]
-            fmt = detect_format(list(df.columns))
-            logger.info("Excel загружен: %s::%s формат=%s строк=%s", fp.name, sheet_name, fmt, len(df))
-            loaded.append((f"{fp.name}::{sheet_name}", df, fmt))
+            st = fp.stat()
+            sig.append((fp.name, st.st_mtime, st.st_size))
+        except OSError:
+            continue
+    return sig
+
+
+def _load_one_file(fp: Path) -> list[tuple[str, pd.DataFrame, str]]:
+    try:
+        if fp.suffix.lower() == ".xls":
+            sheets = pd.read_excel(fp, sheet_name=None, dtype=str, engine="xlrd")
+        else:
+            sheets = pd.read_excel(fp, sheet_name=None, dtype=str, engine="openpyxl")
+    except Exception as exc:
+        try:
+            sheets = pd.read_excel(fp, sheet_name=None, dtype=str)
+        except Exception as exc2:
+            logger.error("Не удалось открыть %s: %s / %s", fp, exc, exc2)
+            return []
+    loaded: list[tuple[str, pd.DataFrame, str]] = []
+    for sheet_name, df in sheets.items():
+        if df is None or df.empty:
+            continue
+        df = df.copy()
+        df.columns = [str(c).strip() for c in df.columns]
+        df = _normalize_header_row(df)
+        df.columns = [str(c).strip() for c in df.columns]
+        fmt = detect_format(list(df.columns))
+        logger.info(
+            "Excel загружен: %s::%s формат=%s строк=%s",
+            fp.name,
+            sheet_name,
+            fmt,
+            len(df),
+        )
+        loaded.append((f"{fp.name}::{sheet_name}", df, fmt))
     return loaded
+
+
+def load_price_frames(
+    price_dir: Path,
+    progress: ProgressFn | None = None,
+    pct_from: int = 10,
+    pct_to: int = 40,
+) -> list[tuple[str, pd.DataFrame, str]]:
+    files = _list_price_files(price_dir)
+    if not files:
+        return []
+
+    loaded: list[tuple[str, pd.DataFrame, str]] = []
+    total = len(files)
+    # Параллельная загрузка файлов — быстрее на нескольких прайсах
+    workers = min(4, total)
+    done = 0
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {pool.submit(_load_one_file, fp): fp for fp in files}
+        for fut in as_completed(futures):
+            loaded.extend(fut.result())
+            done += 1
+            if progress:
+                pct = pct_from + int((pct_to - pct_from) * done / max(total, 1))
+                progress(pct, f"Чтение Excel: {done}/{total}…")
+    return loaded
+
+
+@dataclass
+class IndexRow:
+    name: str
+    model: str
+    brand: str
+    source: str
+    blob_norm: str
+    blob_compact: str
+
+
+def _cache_path(cfg: dict[str, Any]) -> Path:
+    return Path(cfg["log_dir"]) / "excel_index_cache.pkl"
+
+
+def _build_index_rows(
+    frames: list[tuple[str, pd.DataFrame, str]],
+    cfg: dict[str, Any],
+    progress: ProgressFn | None = None,
+    pct_from: int = 40,
+    pct_to: int = 55,
+) -> list[IndexRow]:
+    use_article_cols = bool(cfg.get("excel_search_article_columns", False))
+    rows: list[IndexRow] = []
+    total = max(len(frames), 1)
+    for i, (source, df, fmt) in enumerate(frames):
+        columns = list(df.columns)
+        article_col = None
+        if use_article_cols:
+            article_col = _find_column(
+                columns,
+                ["Каталожный №", "Каталожный номер", "Номер", "Артикул", "OE", "OEM"],
+            )
+        raw_name_col = _find_column(
+            columns,
+            cfg.get("col_name")
+            or [
+                "Наименование товара",
+                "Товар",
+                "Номенклатура",
+                "Ценовая группа",
+            ],
+        )
+        for _, row in df.iterrows():
+            parsed = _row_from_format(row, columns, fmt, cfg)
+            if not parsed:
+                continue
+            row_name, row_model, row_brand = parsed
+            chunks = [row_name, row_model, row_brand]
+            if raw_name_col:
+                raw = row.get(raw_name_col)
+                if raw is not None and not (isinstance(raw, float) and pd.isna(raw)):
+                    chunks.append(str(raw))
+            if article_col:
+                av = row.get(article_col)
+                if av is not None and not (isinstance(av, float) and pd.isna(av)):
+                    chunks.append(str(av))
+            blob = " ".join(p for p in chunks if p)
+            bn = _norm(blob)
+            bc = re.sub(r"[^a-zA-Zа-яА-Я0-9]", "", bn)
+            if not bn:
+                continue
+            rows.append(
+                IndexRow(
+                    name=row_name,
+                    model=row_model,
+                    brand=row_brand,
+                    source=source,
+                    blob_norm=bn,
+                    blob_compact=bc,
+                )
+            )
+        if progress:
+            pct = pct_from + int((pct_to - pct_from) * (i + 1) / total)
+            progress(pct, f"Индекс прайса: {i + 1}/{total}…")
+    return rows
+
+
+def get_excel_index(
+    cfg: dict[str, Any],
+    progress: ProgressFn | None = None,
+) -> list[IndexRow]:
+    """Загружает или строит быстрый индекс прайсов."""
+    price_dir: Path = cfg["price_dir"]
+    cache = _cache_path(cfg)
+    sig = _file_signature(price_dir)
+    use_article = bool(cfg.get("excel_search_article_columns", False))
+
+    if cache.exists():
+        try:
+            with cache.open("rb") as fh:
+                payload = pickle.load(fh)
+            if (
+                payload.get("sig") == sig
+                and payload.get("use_article") == use_article
+                and isinstance(payload.get("rows"), list)
+            ):
+                if progress:
+                    progress(50, "Excel-кэш готов (мгновенный поиск)…")
+                logger.info("Excel-индекс из кэша: %s строк", len(payload["rows"]))
+                return payload["rows"]
+        except Exception as exc:
+            logger.warning("Кэш Excel повреждён, пересобираем: %s", exc)
+
+    if progress:
+        progress(12, "Первый проход: читаю ваши Excel…")
+    t0 = time.perf_counter()
+    frames = load_price_frames(price_dir, progress=progress, pct_from=12, pct_to=42)
+    rows = _build_index_rows(frames, cfg, progress=progress, pct_from=42, pct_to=55)
+    try:
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        with cache.open("wb") as fh:
+            pickle.dump(
+                {"sig": sig, "use_article": use_article, "rows": rows},
+                fh,
+                protocol=pickle.HIGHEST_PROTOCOL,
+            )
+    except Exception as exc:
+        logger.warning("Не удалось сохранить кэш Excel: %s", exc)
+
+    logger.info(
+        "Excel-индекс построен: %s строк за %.2fс",
+        len(rows),
+        time.perf_counter() - t0,
+    )
+    if progress:
+        progress(55, f"Excel готов: {len(rows)} строк")
+    return rows
 
 
 def _row_from_format(
@@ -319,7 +500,11 @@ def _row_from_format(
     return name, model, brand
 
 
-def search_excel_candidates(query: str, cfg: dict[str, Any]) -> list:
+def search_excel_candidates(
+    query: str,
+    cfg: dict[str, Any],
+    progress: ProgressFn | None = None,
+) -> list:
     """Кандидаты из ВАШИХ прайсов — главный источник нужной запчасти.
 
     Ищем код из поля «Имя» внутри текста названия/модели/бренда/номенклатуры
@@ -332,73 +517,47 @@ def search_excel_candidates(query: str, cfg: dict[str, Any]) -> list:
     if len(q) < 3:
         return []
 
-    price_dir: Path = cfg["price_dir"]
-    frames = load_price_frames(price_dir)
+    if progress:
+        progress(10, "Супербыстрый поиск в ваших Excel…")
+
+    index = get_excel_index(cfg, progress=progress)
     out: list = []
     seen: set[str] = set()
     qn = _norm(q)
     qc = re.sub(r"[^a-zA-Zа-яА-Я0-9]", "", qn)
-    use_article_cols = bool(cfg.get("excel_search_article_columns", False))
+    limit = max(int(cfg.get("max_candidates") or 12), 15)
 
-    for source, df, fmt in frames:
-        columns = list(df.columns)
-        article_col = None
-        if use_article_cols:
-            article_col = _find_column(
-                columns,
-                ["Каталожный №", "Каталожный номер", "Номер", "Артикул", "OE", "OEM"],
+    total = max(len(index), 1)
+    step = max(total // 20, 1)
+    for i, row in enumerate(index):
+        if qn not in row.blob_norm and qc not in row.blob_compact:
+            continue
+        key = f"{row.name}|{row.brand}|{row.model}".upper()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(
+            PartCandidate(
+                brand=row.brand,
+                article=q,
+                title=row.name,
+                model=row.model,
+                source="excel",
+                extra={"file": row.source, "match": "price"},
             )
-        raw_name_col = _find_column(
-            columns,
-            cfg.get("col_name")
-            or [
-                "Наименование товара",
-                "Товар",
-                "Номенклатура",
-                "Ценовая группа",
-            ],
         )
+        if len(out) >= limit:
+            break
+        if progress and i % step == 0:
+            # 55→70 пока сканируем индекс
+            pct = 55 + int(15 * i / total)
+            progress(min(pct, 70), f"Сканирую прайс… найдено {len(out)}")
 
-        for _, row in df.iterrows():
-            parsed = _row_from_format(row, columns, fmt, cfg)
-            if not parsed:
-                continue
-            row_name, row_model, row_brand = parsed
-
-            chunks = [row_name, row_model, row_brand]
-            # Сырая номенклатура (там может быть //OE361337// или /361337)
-            if raw_name_col:
-                raw = row.get(raw_name_col)
-                if raw is not None and not (isinstance(raw, float) and pd.isna(raw)):
-                    chunks.append(str(raw))
-            if article_col:
-                av = row.get(article_col)
-                if av is not None and not (isinstance(av, float) and pd.isna(av)):
-                    chunks.append(str(av))
-
-            blob = " ".join(p for p in chunks if p)
-            bn = _norm(blob)
-            bc = re.sub(r"[^a-zA-Zа-яА-Я0-9]", "", bn)
-            if qn not in bn and qc not in bc:
-                continue
-
-            key = f"{row_name}|{row_brand}|{row_model}".upper()
-            if key in seen:
-                continue
-            seen.add(key)
-            out.append(
-                PartCandidate(
-                    brand=row_brand,
-                    article=q,
-                    title=row_name,
-                    model=row_model,
-                    source="excel",
-                    extra={"file": source, "match": "price"},
-                )
-            )
-            if len(out) >= 15:
-                logger.info("Excel-кандидаты по «%s»: %s (лимит)", q, len(out))
-                return out
+    if progress:
+        if out:
+            progress(72, f"В Excel найдено: {len(out)}")
+        else:
+            progress(72, "В Excel подходящего нет")
 
     logger.info("Excel-кандидаты по запросу «%s»: %s", q, len(out))
     return out
@@ -415,39 +574,52 @@ def search_excel(
     min_score = float(cfg.get("min_match_score") or 0.55)
 
     best: ExcelMatch | None = None
-    frames = load_price_frames(price_dir)
-    if not frames:
-        logger.warning("В папке %s нет Excel-файлов", price_dir)
-        return None
-
-    for source, df, fmt in frames:
-        columns = list(df.columns)
-        for _, row in df.iterrows():
-            parsed = _row_from_format(row, columns, fmt, cfg)
-            if not parsed:
+    # Для скоринга по title/brand используем индекс (быстрее повторного чтения xlsx)
+    try:
+        index = get_excel_index(cfg, progress=None)
+        for row in index:
+            if not (row.name or "").strip():
                 continue
-            row_name, row_model, row_brand = parsed
-            if not row_name.strip():
-                continue
-
-            # Для скоринга склеиваем name+model (модель может быть отдельно)
-            score_name = " ".join(p for p in (row_name, row_model) if p)
-            score = _score_row(score_name, row_brand, title, brand)
-
-            # Не поднимаем score только из-за совпадения исходного штрихкода в тексте —
-            # это подменяло выбранный товар чужой строкой Excel.
-
+            score_name = " ".join(p for p in (row.name, row.model) if p)
+            score = _score_row(score_name, row.brand, title, brand)
             if score < min_score:
                 continue
             if best is None or score > best.score:
                 best = ExcelMatch(
-                    name=row_name.strip(),
-                    brand=(row_brand or brand or "").strip(),
-                    model=row_model.strip(),
-                    source_file=source,
+                    name=row.name.strip(),
+                    brand=(row.brand or brand or "").strip(),
+                    model=(row.model or "").strip(),
+                    source_file=row.source,
                     score=score,
-                    format_id=fmt,
+                    format_id="",
                 )
+    except Exception:
+        frames = load_price_frames(price_dir)
+        if not frames:
+            logger.warning("В папке %s нет Excel-файлов", price_dir)
+            return None
+        for source, df, fmt in frames:
+            columns = list(df.columns)
+            for _, row in df.iterrows():
+                parsed = _row_from_format(row, columns, fmt, cfg)
+                if not parsed:
+                    continue
+                row_name, row_model, row_brand = parsed
+                if not row_name.strip():
+                    continue
+                score_name = " ".join(p for p in (row_name, row_model) if p)
+                score = _score_row(score_name, row_brand, title, brand)
+                if score < min_score:
+                    continue
+                if best is None or score > best.score:
+                    best = ExcelMatch(
+                        name=row_name.strip(),
+                        brand=(row_brand or brand or "").strip(),
+                        model=row_model.strip(),
+                        source_file=source,
+                        score=score,
+                        format_id=fmt,
+                    )
 
     if best:
         logger.info(
