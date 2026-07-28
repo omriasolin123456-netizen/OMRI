@@ -1,9 +1,31 @@
-"""Окно выбора варианта товара (tkinter) + ручной ввод."""
+"""Окно выбора варианта товара (tkinter) + ручной ввод.
+
+Широкое окно + таблица: полное наименование видно целиком.
+Превью итогового «Имя» в порядке:
+  Название + характеристики + Модель + Бренд
+"""
 from __future__ import annotations
 
 from typing import Sequence
 
 from web_search import PartCandidate
+
+
+def _preview_name(c: PartCandidate) -> str:
+    """Как будет выглядеть поле «Имя» после OK."""
+    from name_format import build_final_name
+
+    return build_final_name(c.title, c.model, c.brand) or c.title or ""
+
+
+def _source_label(c: PartCandidate) -> str:
+    if c.source == "excel":
+        return "ВАШ ПРАЙС"
+    if c.source == "fapi":
+        return "интернет"
+    if c.source == "manual":
+        return "ручной"
+    return c.source or ""
 
 
 def select_candidate(candidates: Sequence[PartCandidate], query: str) -> PartCandidate | None:
@@ -22,10 +44,11 @@ def select_candidate(candidates: Sequence[PartCandidate], query: str) -> PartCan
     root.attributes("-topmost", True)
     root.resizable(True, True)
 
-    width, height = 820, 560
     sw = root.winfo_screenwidth()
     sh = root.winfo_screenheight()
-    root.geometry(f"{width}x{height}+{(sw - width) // 2}+{(sh - height) // 4}")
+    width = min(max(1100, int(sw * 0.85)), sw - 40)
+    height = min(max(640, int(sh * 0.75)), sh - 60)
+    root.geometry(f"{width}x{height}+{(sw - width) // 2}+{max(20, (sh - height) // 5)}")
 
     selected: dict[str, PartCandidate | None] = {"value": None}
 
@@ -36,62 +59,114 @@ def select_candidate(candidates: Sequence[PartCandidate], query: str) -> PartCan
         frame,
         text=(
             f"Запрос: «{query}» — найдено: {len(candidates)}\n"
-            "Сначала искали в ВАШИХ Excel. Интернет — только если в прайсе ничего не нашлось.\n"
-            "Если нужного нет — введите вручную: Наименование  Модель  Бренд."
+            "Сначала ваши Excel; интернет — только если в прайсе пусто.\n"
+            "Итоговое имя: Название запчасти + характеристики (4ц, объём, размер…) + Модель + Бренд."
         ),
         justify=tk.LEFT,
     ).pack(anchor=tk.W, pady=(0, 8))
 
-    list_frame = ttk.Frame(frame)
-    list_frame.pack(fill=tk.BOTH, expand=True)
+    # Таблица с колонками — длинные названия видны (горизонтальный скролл)
+    table_frame = ttk.Frame(frame)
+    table_frame.pack(fill=tk.BOTH, expand=True)
 
-    scroll = ttk.Scrollbar(list_frame)
-    scroll.pack(side=tk.RIGHT, fill=tk.Y)
-
-    lb = tk.Listbox(
-        list_frame,
-        font=("Segoe UI", 11),
-        yscrollcommand=scroll.set,
-        activestyle="dotbox",
-        exportselection=False,
-        height=12,
+    cols = ("preview", "model", "brand", "catalog", "src")
+    tree = ttk.Treeview(
+        table_frame,
+        columns=cols,
+        show="headings",
+        selectmode="browse",
+        height=16,
     )
-    lb.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-    scroll.config(command=lb.yview)
+    tree.heading("preview", text="Имя (как будет в Microinvest)")
+    tree.heading("model", text="Модель")
+    tree.heading("brand", text="Бренд")
+    tree.heading("catalog", text="Каталожный №")
+    tree.heading("src", text="Источник")
 
+    tree.column("preview", width=int(width * 0.52), minwidth=320, stretch=True)
+    tree.column("model", width=180, minwidth=100, stretch=False)
+    tree.column("brand", width=110, minwidth=70, stretch=False)
+    tree.column("catalog", width=130, minwidth=80, stretch=False)
+    tree.column("src", width=100, minwidth=70, stretch=False)
+
+    yscroll = ttk.Scrollbar(table_frame, orient=tk.VERTICAL, command=tree.yview)
+    xscroll = ttk.Scrollbar(table_frame, orient=tk.HORIZONTAL, command=tree.xview)
+    tree.configure(yscrollcommand=yscroll.set, xscrollcommand=xscroll.set)
+
+    tree.grid(row=0, column=0, sticky="nsew")
+    yscroll.grid(row=0, column=1, sticky="ns")
+    xscroll.grid(row=1, column=0, sticky="ew")
+    table_frame.rowconfigure(0, weight=1)
+    table_frame.columnconfigure(0, weight=1)
+
+    previews: list[str] = []
     if candidates:
-        for i, c in enumerate(candidates, start=1):
-            if c.source == "excel":
-                src = " [ВАШ ПРАЙС]"
-            elif c.source == "fapi":
-                src = " [интернет]"
-            elif c.source:
-                src = f" [{c.source}]"
-            else:
-                src = ""
-            lb.insert(tk.END, f"{i}. {c.display}{src}")
-        lb.selection_set(0)
+        for c in candidates:
+            prev = _preview_name(c)
+            previews.append(prev)
+            tree.insert(
+                "",
+                tk.END,
+                values=(
+                    prev,
+                    c.model or "",
+                    c.brand or "",
+                    c.catalog_number or "",
+                    _source_label(c),
+                ),
+            )
+        first = tree.get_children()
+        if first:
+            tree.selection_set(first[0])
+            tree.focus(first[0])
+            tree.see(first[0])
     else:
-        lb.insert(tk.END, "(Автоматический поиск ничего подходящего не нашёл)")
+        tree.insert("", tk.END, values=("(ничего не найдено)", "", "", "", ""))
+
+    # Полная строка выбранного — чтобы точно всё прочитать
+    detail = ttk.LabelFrame(frame, text="Полное наименование выбранной строки", padding=8)
+    detail.pack(fill=tk.X, pady=(10, 0))
+    detail_var = tk.StringVar(value=previews[0] if previews else "")
+    detail_entry = ttk.Entry(detail, textvariable=detail_var, font=("Segoe UI", 11))
+    detail_entry.pack(fill=tk.X)
+
+    def on_select(_event=None):
+        sel = tree.selection()
+        if not sel or not candidates:
+            return
+        idx = tree.index(sel[0])
+        if 0 <= idx < len(previews):
+            detail_var.set(previews[idx])
+            # Подставить в ручной ввод для правки
+            c = candidates[idx]
+            name_var.set(c.title or "")
+            model_var.set(c.model or "")
+            brand_var.set(c.brand or "")
+
+    tree.bind("<<TreeviewSelect>>", on_select)
 
     # Ручной ввод
-    manual = ttk.LabelFrame(frame, text="Ручной ввод (если список неверный)", padding=8)
+    manual = ttk.LabelFrame(frame, text="Ручной ввод / правка (Наименование → Модель → Бренд)", padding=8)
     manual.pack(fill=tk.X, pady=(10, 0))
 
-    ttk.Label(manual, text="Наименование:").grid(row=0, column=0, sticky="w")
+    ttk.Label(manual, text="Наименование (+ характеристики):").grid(row=0, column=0, sticky="w")
     name_var = tk.StringVar()
-    name_entry = ttk.Entry(manual, textvariable=name_var, width=70)
+    name_entry = ttk.Entry(manual, textvariable=name_var)
     name_entry.grid(row=0, column=1, columnspan=3, sticky="we", padx=4, pady=2)
 
     ttk.Label(manual, text="Модель авто:").grid(row=1, column=0, sticky="w")
     model_var = tk.StringVar()
-    ttk.Entry(manual, textvariable=model_var, width=28).grid(row=1, column=1, sticky="w", padx=4, pady=2)
+    ttk.Entry(manual, textvariable=model_var, width=36).grid(row=1, column=1, sticky="we", padx=4, pady=2)
 
     ttk.Label(manual, text="Бренд:").grid(row=1, column=2, sticky="w", padx=(12, 0))
     brand_var = tk.StringVar()
-    ttk.Entry(manual, textvariable=brand_var, width=20).grid(row=1, column=3, sticky="w", padx=4, pady=2)
+    ttk.Entry(manual, textvariable=brand_var, width=22).grid(row=1, column=3, sticky="we", padx=4, pady=2)
 
     manual.columnconfigure(1, weight=1)
+    manual.columnconfigure(3, weight=1)
+
+    if candidates:
+        on_select()
 
     btns = ttk.Frame(frame)
     btns.pack(fill=tk.X, pady=(10, 0))
@@ -99,10 +174,10 @@ def select_candidate(candidates: Sequence[PartCandidate], query: str) -> PartCan
     def confirm_list(_event=None):
         if not candidates:
             return
-        idxs = lb.curselection()
-        if not idxs:
+        sel = tree.selection()
+        if not sel:
             return
-        idx = int(idxs[0])
+        idx = tree.index(sel[0])
         if idx < 0 or idx >= len(candidates):
             return
         selected["value"] = candidates[idx]
@@ -115,12 +190,19 @@ def select_candidate(candidates: Sequence[PartCandidate], query: str) -> PartCan
             return
         model = model_var.get().strip()
         brand = brand_var.get().strip()
+        catalog = ""
+        sel = tree.selection()
+        if sel and candidates:
+            idx = tree.index(sel[0])
+            if 0 <= idx < len(candidates):
+                catalog = candidates[idx].catalog_number or ""
         selected["value"] = PartCandidate(
             brand=brand,
             article=query,
             title=name,
             model=model,
             source="manual",
+            catalog_number=catalog,
         )
         root.destroy()
 
@@ -133,11 +215,12 @@ def select_candidate(candidates: Sequence[PartCandidate], query: str) -> PartCan
     ttk.Button(btns, text="Отмена", command=cancel).pack(side=tk.RIGHT)
 
     root.bind("<Escape>", cancel)
-    lb.bind("<Double-Button-1>", confirm_list)
+    root.bind("<Return>", confirm_list)
+    tree.bind("<Double-Button-1>", confirm_list)
     root.protocol("WM_DELETE_WINDOW", cancel)
 
     if candidates:
-        lb.focus_set()
+        tree.focus_set()
     else:
         name_entry.focus_set()
 
@@ -162,8 +245,11 @@ def select_ntin(candidates, query: str):
     root.title("Выбор NTIN — Microinvest Assistant")
     root.attributes("-topmost", True)
     root.resizable(True, True)
-    w, h = 780, 420
-    root.geometry(f"{w}x{h}+{(root.winfo_screenwidth()-w)//2}+{(root.winfo_screenheight()-h)//3}")
+    sw = root.winfo_screenwidth()
+    sh = root.winfo_screenheight()
+    w = min(960, sw - 40)
+    h = min(520, sh - 80)
+    root.geometry(f"{w}x{h}+{(sw - w) // 2}+{(sh - h) // 3}")
 
     picked = {"value": None}
     frame = ttk.Frame(root, padding=12)
@@ -177,20 +263,33 @@ def select_ntin(candidates, query: str):
         justify=tk.LEFT,
     ).pack(anchor=tk.W, pady=(0, 8))
 
-    lb = tk.Listbox(frame, font=("Segoe UI", 11), exportselection=False)
-    lb.pack(fill=tk.BOTH, expand=True)
-    for i, c in enumerate(candidates, 1):
-        lb.insert(tk.END, f"{i}. {c.display}")
-    lb.selection_set(0)
+    cols = ("ntin", "name")
+    tree = ttk.Treeview(frame, columns=cols, show="headings", selectmode="browse", height=14)
+    tree.heading("ntin", text="NTIN")
+    tree.heading("name", text="Название в НКТ")
+    tree.column("ntin", width=160, stretch=False)
+    tree.column("name", width=700, stretch=True)
+    yscroll = ttk.Scrollbar(frame, orient=tk.VERTICAL, command=tree.yview)
+    tree.configure(yscrollcommand=yscroll.set)
+    tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+    yscroll.pack(side=tk.RIGHT, fill=tk.Y)
 
-    btns = ttk.Frame(frame)
-    btns.pack(fill=tk.X, pady=(10, 0))
+    for c in candidates:
+        tree.insert("", tk.END, values=(c.ntin, c.name))
+    kids = tree.get_children()
+    if kids:
+        tree.selection_set(kids[0])
+        tree.focus(kids[0])
+
+    btns = ttk.Frame(root, padding=12)
+    btns.pack(fill=tk.X)
 
     def ok(_e=None):
-        idxs = lb.curselection()
-        if not idxs:
+        sel = tree.selection()
+        if not sel:
             return
-        picked["value"] = candidates[int(idxs[0])]
+        idx = tree.index(sel[0])
+        picked["value"] = candidates[idx]
         root.destroy()
 
     def skip(_e=None):
@@ -199,7 +298,7 @@ def select_ntin(candidates, query: str):
 
     ttk.Button(btns, text="OK", command=ok).pack(side=tk.RIGHT, padx=(6, 0))
     ttk.Button(btns, text="Пропустить NTIN", command=skip).pack(side=tk.RIGHT)
-    lb.bind("<Double-Button-1>", ok)
+    tree.bind("<Double-Button-1>", ok)
     root.bind("<Return>", ok)
     root.bind("<Escape>", skip)
     root.protocol("WM_DELETE_WINDOW", skip)

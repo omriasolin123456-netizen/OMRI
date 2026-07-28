@@ -81,20 +81,7 @@ def write_result(path: Path, payload: dict[str, Any]) -> None:
     txt_path.write_text("\n".join(lines) + "\n", encoding="utf-16")
 
 
-def build_final_name(name: str, model: str, brand: str) -> str:
-    """Строго: Название Модель Бренд (без артикула в имени)."""
-    from ntin_search import short_product_name
-
-    short = short_product_name(name)
-    parts: list[str] = []
-    for p in (short, model, brand):
-        p = (p or "").strip()
-        if not p:
-            continue
-        if parts and p.lower() in " ".join(parts).lower():
-            continue
-        parts.append(p)
-    return " ".join(parts).strip()
+from name_format import build_final_name
 
 
 def run(query: str, cfg: dict[str, Any], logger) -> dict[str, Any]:
