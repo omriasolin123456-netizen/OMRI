@@ -80,10 +80,7 @@ gw_search = https://nationalcatalog.kz/gw/search/api/v1/search
 Код из «Имя» ищется по всей строке (Артикул, OE, Код производителя и т.д.).
 Итоговое имя: **Наименование + Модель + Бренд**.
 
-> **Важно:** колонки «Артикул» / «Номер каталога» **не используются** для сопоставления с полем «Имя».  
-> Поиск в Excel идёт только по найденному наименованию и бренду из интернета.
-
-В репозитории лежат два примера: `price_suspension.xlsx`, `price_bearings.xlsx`.
+Примеры в `price\`: `format4_supplier_artikul.xlsx`, `format5_kod_proizvoditelya.xlsx` и др.
 
 ## Настройки (`config.ini`)
 
@@ -93,7 +90,7 @@ gw_search = https://nationalcatalog.kz/gw/search/api/v1/search
 | `[microinvest]` | `field_name` / `field_barcode` / `field_ntin` | ClassNN полей WinForms |
 | `[paths]` | `price_dir` | Папка с `.xlsx` |
 | `[search]` | `fapi_key` | Ключ API каталога кроссов |
-| `[ntin]` | `api_token` | Опциональный токен API НКТ |
+| `[ntin]` | `gw_search` | Публичный поиск NTIN (без токена) |
 
 ClassNN по умолчанию (ваша сборка 3.07.075):
 

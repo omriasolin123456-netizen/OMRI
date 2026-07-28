@@ -240,8 +240,14 @@ def _run_with_progress(
         ntin = ""
         ntin_missing = True
         if cfg.get("ntin_enabled", True):
-            progress2.set(95, "Ищу NTIN в каталоге…")
-            ntin_cands = search_ntin_candidates(base_name, model, brand, cfg)
+            progress2.set(95, "Ищу NTIN (несколько запросов)…")
+            ntin_cands = search_ntin_candidates(
+                base_name,
+                model,
+                brand,
+                cfg,
+                barcode=barcode,
+            )
             if len(ntin_cands) == 1:
                 ntin = ntin_cands[0].ntin
                 ntin_missing = False
