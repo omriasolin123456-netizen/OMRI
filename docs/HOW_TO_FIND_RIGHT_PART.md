@@ -33,14 +33,23 @@
 
 Внизу окна: Наименование → Модель → Бренд → «Использовать ручной ввод».
 
-## 4. NTIN точнее с API-токеном
+## 4. NTIN через nationalcatalog.kz
 
-https://nationalcatalog.kz → Ключи API → в `config.ini`:
+Поиск идёт так же, как на сайте:
+
+```
+POST https://nationalcatalog.kz/gw/search/api/v1/search
+{"query":"…", "page":0, "size":20, "sort":"relevance", …}
+```
+
+В `config.ini`:
 
 ```ini
 [ntin]
-api_token = ВАШ_ТОКЕН
+gw_search = https://nationalcatalog.kz/gw/search/api/v1/search
 ```
+
+Токен не обязателен. Запрос: `Название Модель Бренд`.
 
 ## 5. Искать также по колонке «Номер»
 

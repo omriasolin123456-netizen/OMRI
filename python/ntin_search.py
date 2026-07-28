@@ -1,14 +1,21 @@
-"""Поиск NTIN в Национальном каталоге товаров Казахстана.
+"""Поиск NTIN через API Национального каталога товаров Казахстана.
 
-Сайты:
-- https://www.nct.gov.kz/  (государственный НКТ, есть публичные карточки)
-- https://nationalcatalog.kz / https://nct.kz  (кабинет + API по токену)
+Основной endpoint (без токена):
+  POST https://nationalcatalog.kz/gw/search/api/v1/search
 
-API:
-- Официальный API v3 требует ключ: Личный кабинет → Ключи API
-  Документация: https://nct.kz/rest/docs
-- Без ключа: быстрый веб-поиск по короткому запросу
-  «Название Модель Бренд» (как при ручном поиске на сайте).
+Тело запроса (как на сайте):
+  {
+    "query": "…",
+    "withAttributesFilter": false,
+    "withCategoriesFilter": true,
+    "attributes": {},
+    "baseNtin": null,
+    "page": 0,
+    "size": 20,
+    "sort": "relevance"
+  }
+
+Ответ: items[].ntin + items[].nameRu
 """
 from __future__ import annotations
 
@@ -27,6 +34,8 @@ NTIN_LABEL_RE = re.compile(
     re.I,
 )
 
+DEFAULT_GW_SEARCH = "https://nationalcatalog.kz/gw/search/api/v1/search"
+
 
 @dataclass
 class NtinCandidate:
@@ -44,7 +53,6 @@ def short_product_name(title: str) -> str:
     text = (title or "").strip()
     if not text:
         return ""
-    # Обрезать после слэша/скобок с артикулами
     text = re.split(r"\s*/\s*|\(|\[", text, maxsplit=1)[0].strip()
     words: list[str] = []
     for w in text.split():
@@ -62,7 +70,6 @@ def build_ntin_query(name: str, model: str, brand: str) -> str:
     """Формат как при ручном поиске: Название Модель Бренд."""
     short = short_product_name(name)
     parts = [p.strip() for p in (short, model, brand) if p and str(p).strip()]
-    # Убрать дубли
     out: list[str] = []
     for p in parts:
         if out and p.lower() in " ".join(out).lower():
@@ -89,19 +96,28 @@ def search_ntin_candidates(
     found: list[NtinCandidate] = []
     seen: set[str] = set()
 
+    # 1) Публичный gateway search (основной, без токена)
+    for c in _search_ntin_gateway(query, cfg, timeout):
+        if c.ntin not in seen:
+            seen.add(c.ntin)
+            found.append(c)
+
+    # 2) Официальный API с Bearer-токеном (если задан)
     token = (cfg.get("ntin_api_token") or "").strip()
-    if token:
+    if token and not found:
         for c in _search_ntin_api_list(query, token, cfg, timeout):
             if c.ntin not in seen:
                 seen.add(c.ntin)
                 found.append(c)
 
-    if not found and cfg.get("ntin_web_search", True):
+    # 3) Веб-fallback (медленный, по умолчанию выкл. если gateway работает)
+    if not found and cfg.get("ntin_web_search", False):
         for c in _search_ntin_web_list(query, timeout):
             if c.ntin not in seen:
                 seen.add(c.ntin)
                 found.append(c)
 
+    found = _rank_ntin(found, query, brand)
     logger.info("NTIN кандидатов: %s", len(found))
     return found[:12]
 
@@ -110,6 +126,91 @@ def search_ntin(product_name: str, brand: str, cfg: dict[str, Any], model: str =
     """Совместимость: вернуть один NTIN или None."""
     cands = search_ntin_candidates(product_name, model, brand, cfg)
     return cands[0].ntin if cands else None
+
+
+def _rank_ntin(items: list[NtinCandidate], query: str, brand: str) -> list[NtinCandidate]:
+    q_tokens = {t.lower() for t in re.findall(r"[A-Za-zА-Яа-я0-9]{2,}", query)}
+    b = (brand or "").strip().lower()
+
+    def key(c: NtinCandidate) -> tuple:
+        name_l = (c.name or "").lower()
+        hits = sum(1 for t in q_tokens if t in name_l)
+        brand_hit = 0 if (b and b in name_l) else 1
+        return (-hits, brand_hit, c.name)
+
+    return sorted(items, key=key)
+
+
+def _search_ntin_gateway(
+    query: str,
+    cfg: dict[str, Any],
+    timeout: float,
+) -> list[NtinCandidate]:
+    """POST /gw/search/api/v1/search — как на nationalcatalog.kz."""
+    url = (cfg.get("ntin_gw_search") or DEFAULT_GW_SEARCH).strip()
+    size = int(cfg.get("ntin_page_size") or 20)
+    payload = {
+        "query": query,
+        "withAttributesFilter": False,
+        "withCategoriesFilter": True,
+        "attributes": {},
+        "baseNtin": None,
+        "page": 0,
+        "size": size,
+        "sort": "relevance",
+    }
+    headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "User-Agent": "MicroinvestPartsAssistant/1.1",
+    }
+    try:
+        resp = requests.post(url, json=payload, headers=headers, timeout=timeout)
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as exc:
+        logger.error("НКТ gateway ошибка: %s", exc)
+        return []
+
+    out: list[NtinCandidate] = []
+    seen: set[str] = set()
+    for item in data.get("items") or []:
+        if not isinstance(item, dict):
+            continue
+        ntin = str(item.get("ntin") or "").strip()
+        if not ntin or not re.fullmatch(r"\d{13,14}", ntin):
+            continue
+        if ntin in seen:
+            continue
+        seen.add(ntin)
+        name = (
+            str(item.get("nameRu") or item.get("shortNameRu") or item.get("nameKk") or "")
+            .strip()
+        )
+        # Артикул из attributes — в хвост имени для выбора
+        article = _attr_value(item, "article")
+        brand_attr = _attr_value(item, "brand")
+        extra = " ".join(p for p in (brand_attr, article) if p)
+        if extra and name and extra.lower() not in name.lower():
+            name = f"{name} ({extra})"
+        out.append(NtinCandidate(ntin=ntin, name=name or ntin, source="nct-gw"))
+
+    total = (data.get("pageInfo") or {}).get("totalSize")
+    logger.info("НКТ gateway: %s шт. (всего %s) по «%s»", len(out), total, query)
+    return out
+
+
+def _attr_value(item: dict[str, Any], code: str) -> str:
+    for a in item.get("attributes") or []:
+        if not isinstance(a, dict):
+            continue
+        if str(a.get("code") or "").lower() != code.lower():
+            continue
+        for key in ("valueRu", "value", "valueEn", "valueKk"):
+            val = a.get(key)
+            if val is not None and str(val).strip():
+                return str(val).strip()
+    return ""
 
 
 def _search_ntin_api_list(
@@ -122,12 +223,11 @@ def _search_ntin_api_list(
     headers = {
         "Authorization": f"Bearer {token}",
         "Accept": "application/json",
-        "User-Agent": "MicroinvestPartsAssistant/1.0",
+        "User-Agent": "MicroinvestPartsAssistant/1.1",
     }
     endpoints = [
         (f"{base}/rest/api/v3/products", {"name": query}),
         (f"{base}/gwp/rest/api/v3/products", {"name": query}),
-        ("https://nationalcatalog.kz/gw/api/v1/products/search", {"q": query, "search": query}),
     ]
     out: list[NtinCandidate] = []
     for url, params in endpoints:
@@ -155,7 +255,9 @@ def _candidates_from_json(data: Any, source: str) -> list[NtinCandidate]:
                 if val and re.fullmatch(r"\d{13,14}", str(val).strip()):
                     ntin = str(val).strip()
                     break
-            name = str(node.get("name") or node.get("product_name") or node.get("title") or "").strip()
+            name = str(
+                node.get("name") or node.get("nameRu") or node.get("product_name") or node.get("title") or ""
+            ).strip()
             if ntin:
                 out.append(NtinCandidate(ntin=ntin, name=name or ntin, source=source))
             for v in node.values():
@@ -165,7 +267,6 @@ def _candidates_from_json(data: Any, source: str) -> list[NtinCandidate]:
                 walk(item)
 
     walk(data)
-    # unique by ntin keep first
     uniq: list[NtinCandidate] = []
     seen: set[str] = set()
     for c in out:
@@ -177,7 +278,7 @@ def _candidates_from_json(data: Any, source: str) -> list[NtinCandidate]:
 
 
 def _search_ntin_web_list(query: str, timeout: float) -> list[NtinCandidate]:
-    """Один быстрый DDG-запрос по сайтам НКТ (без серии долгих поисков)."""
+    """Запасной DDG-поиск (медленный)."""
     try:
         from ddgs import DDGS  # type: ignore
     except ImportError:
@@ -187,7 +288,6 @@ def _search_ntin_web_list(query: str, timeout: float) -> list[NtinCandidate]:
             logger.warning("ddgs не установлен — NTIN web недоступен")
             return []
 
-    # Как вручную: короткое «название модель бренд»
     q = f'site:nct.gov.kz OR site:nationalcatalog.kz "{query}"'
     out: list[NtinCandidate] = []
     seen: set[str] = set()
@@ -218,7 +318,6 @@ def _search_ntin_web_list(query: str, timeout: float) -> list[NtinCandidate]:
         if ntin in seen:
             continue
         seen.add(ntin)
-        # Имя карточки из заголовка результата
         card = re.split(r"\s[\|\-–—]\s", title)[0].strip() or query
         out.append(NtinCandidate(ntin=ntin, name=card[:160], source="nct-web"))
     return out

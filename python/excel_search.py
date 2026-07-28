@@ -1,23 +1,15 @@
 """Поиск по локальным Excel-прайсам в папке price.
 
-Поддерживаемые форматы прайсов (по реальным базам):
+Поддерживаемые форматы прайсов:
 
 1) Производитель | Товар | Каталожный № | ...
-   → имя = «Товар Производитель» (модель уже внутри «Товар»)
-
 2) Номер | Наименование товара | Мадель | Бренд | ...
-   → имя = «Наименование товара Мадель Бренд»
-   (опечатка «Мадель» поддержана)
+3) Номенклатура: «Название //OE…// БРЕНД [код]»
+4) Поставщик (скрин): Артикул | Наименование | Модель | Торговая марка | Оригинальный номер
+5) Код производителя | Номер OE | Наименование | Марка
 
-3) «Ценовая группа/ Номенклатура/...»:
-   «Название Модель //OEНомер// БРЕНД»
-   → имя = «Название Модель БРЕНД»
-
-Поиск штрихкода/кода из поля «Имя» идёт по ВСЕЙ строке Excel
-(номенклатура, Штрихкод, Номер, Артикул и любые другие колонки).
-
-Для скорости строится кэш индекса (logs/excel_index_cache.pkl) —
-повторный F8 ищет по кэшу за миллисекунды, пока файлы не менялись.
+Поиск кода из поля «Имя» — по ВСЕЙ строке Excel (все колонки).
+Кэш: logs/excel_index_cache.pkl
 """
 from __future__ import annotations
 
@@ -37,12 +29,14 @@ logger = logging.getLogger("microinvest_assistant")
 ProgressFn = Callable[[int, str], None]
 
 OE_SPLIT_RE = re.compile(r"\s*//\s*", re.UNICODE)
-# Версия индекса — при смене логики поиска кэш пересобирается
-INDEX_VERSION = 3
-# Хвостовой штрихкод/код после бренда: «WXQP 320029»
+INDEX_VERSION = 4
 TRAILING_CODE_RE = re.compile(
     r"^(?P<brand>.+?)\s+(?P<code>[A-Za-zА-Яа-я0-9][A-Za-zА-Яа-я0-9\-/]{3,})$",
     re.UNICODE,
+)
+# Хвостовой бренд в длинном наименовании: «… WXQP», «… Superzing»
+TRAILING_BRAND_RE = re.compile(
+    r"^(?P<head>.+?)\s+(?P<brand>[A-Za-z][A-Za-z0-9\-_/]{1,24})$",
 )
 
 
@@ -179,15 +173,38 @@ def parse_slash_nomenclature(raw: str) -> tuple[str, str, str, str]:
     return text, "", "", ""
 
 
+def split_trailing_brand(name: str) -> tuple[str, str]:
+    """«Амортизатор зад Audi A4 … WXQP» → (head, WXQP)."""
+    text = (name or "").strip()
+    if not text:
+        return "", ""
+    m = TRAILING_BRAND_RE.match(text)
+    if not m:
+        return text, ""
+    brand = m.group("brand").strip()
+    head = m.group("head").strip()
+    # Не откусывать обычные русские слова
+    if re.search(r"[А-Яа-яЁё]", brand):
+        return text, ""
+    if len(brand) < 2:
+        return text, ""
+    return head, brand
+
+
 def detect_format(columns: list[str]) -> str:
     """Определяет формат прайса по заголовкам."""
     joined = " | ".join(_norm(c) for c in columns)
 
+    has_artikul = _find_column(columns, ["Артикул"]) is not None
+    has_trade_mark = _find_column(columns, ["Торговая марка"]) is not None
+    has_orig = _find_column(columns, ["Оригинальный номер"]) is not None
+    has_kod_proizv = _find_column(columns, ["Код производителя"]) is not None
+    has_nomer_oe = _find_column(columns, ["Номер OE", "Номер ОЕ", "OE номер"]) is not None
     has_tovar = _find_column(columns, ["Товар"]) is not None
     has_proizv = _find_column(columns, ["Производитель"]) is not None
     has_name = _find_column(columns, ["Наименование товара", "Наименование"]) is not None
     has_model = _find_column(columns, ["Мадель", "Модель", "МОДЕЛЬ АВТОМОБИЛЯ"]) is not None
-    has_brand = _find_column(columns, ["Бренд", "Brand"]) is not None
+    has_brand = _find_column(columns, ["Бренд", "Brand", "Торговая марка"]) is not None
     has_nomen = _find_column(
         columns,
         [
@@ -198,6 +215,14 @@ def detect_format(columns: list[str]) -> str:
         ],
     ) is not None
 
+    # Формат со скриншота 1: Артикул + Торговая марка (+ Модель / Оригинальный номер)
+    if has_artikul and (has_trade_mark or has_orig) and has_name:
+        return "supplier_artikul"
+    # Формат со скриншота 2: Код производителя + Номер OE + Наименование
+    if has_kod_proizv and has_name:
+        return "kod_proizvoditelya"
+    if has_nomer_oe and has_kod_proizv:
+        return "kod_proizvoditelya"
     if has_nomen and not has_name:
         return "slash_nomenclature"
     if has_name and (has_model or has_brand):
@@ -231,6 +256,10 @@ def _normalize_header_row(df: pd.DataFrame) -> pd.DataFrame:
         "номенклатур",
         "номер",
         "цена",
+        "артикул",
+        "торговая марка",
+        "оригинальный",
+        "код производителя",
     )
     for i in range(min(8, len(df))):
         row_vals = [str(v).strip() for v in df.iloc[i].tolist() if not pd.isna(v)]
@@ -477,13 +506,56 @@ def _row_from_format(
     )
     col_brand = _find_column(
         columns,
-        cfg.get("col_brand") or ["Бренд", "Производитель", "Фирма", "Brand"],
+        cfg.get("col_brand")
+        or ["Торговая марка", "Бренд", "Производитель", "Фирма", "Brand"],
     )
     col_model = _find_column(
         columns,
         cfg.get("col_model")
         or ["Мадель", "Модель", "МОДЕЛЬ АВТОМОБИЛЯ", "Модель автомобиля", "Model"],
     )
+
+    # --- Формат 4: Артикул | Наименование | Модель | Торговая марка ---
+    if fmt == "supplier_artikul":
+        name_col = col_name or _find_column(columns, ["Наименование"])
+        if not name_col:
+            return None
+        name = _cell_str(row.get(name_col))
+        if not name:
+            return None
+        sub_col = _find_column(columns, ["Подгруппа"])
+        subgroup = _cell_str(row.get(sub_col)) if sub_col else ""
+        # Если наименование короткое («Адаптер B1») — добавим подгруппу
+        if subgroup and _norm(subgroup) not in _norm(name):
+            if len(name.split()) <= 3:
+                name = f"{subgroup} {name}".strip()
+        model = _cell_str(row.get(col_model)) if col_model else ""
+        brand_col = col_brand or _find_column(columns, ["Торговая марка"])
+        brand = _cell_str(row.get(brand_col)) if brand_col else ""
+        # Убрать хвост OE из бренда вида «SRR OE»
+        if brand.upper().endswith(" OE"):
+            brand = brand[:-3].strip()
+        return name, model, brand
+
+    # --- Формат 5: Код производителя | Номер OE | Наименование | Марка ---
+    if fmt == "kod_proizvoditelya":
+        name_col = col_name or _find_column(columns, ["Наименование"])
+        if not name_col:
+            return None
+        raw_name = _cell_str(row.get(name_col))
+        if not raw_name:
+            return None
+        # Марка здесь — марка авто (Audi/VW), используем как модель, если нет отдельной
+        marka_col = _find_column(columns, ["Марка"])
+        marka = _cell_str(row.get(marka_col)) if marka_col else ""
+        name, brand = split_trailing_brand(raw_name)
+        model = marka
+        # Если бренд не отделился, а в имени есть известный хвост — model=marka, brand=""
+        if brand and _norm(brand) in _norm(marka):
+            # «Audi» как бренд запчасти маловероятно — вернём в имя
+            name = raw_name
+            brand = ""
+        return name, model, brand
 
     if fmt == "slash_nomenclature":
         raw_col = col_name or _find_column(
