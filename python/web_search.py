@@ -21,6 +21,7 @@ class PartCandidate:
     category: str = ""
     source: str = ""
     model: str = ""
+    catalog_number: str = ""
     extra: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -32,8 +33,12 @@ class PartCandidate:
         if self.model:
             head = f"{head} ({self.model})" if head else self.model
         if self.title:
-            return f"{head} — {self.title}".strip(" —")
-        return head or "Без названия"
+            base = f"{head} — {self.title}".strip(" —")
+        else:
+            base = head or "Без названия"
+        if self.catalog_number:
+            return f"{base}  [кат. {self.catalog_number}]"
+        return base
 
     def key(self) -> str:
         return f"{self.brand}|{self.article}|{self.title}|{self.model}".upper()
@@ -118,6 +123,7 @@ def search_fapi(
                 title=title or "Автозапчасть",
                 category=title,
                 source="fapi",
+                catalog_number=article,
             )
         )
     logger.info("FAPI: %s шт. (отброшено %s) по «%s»", len(out), skipped, query)

@@ -41,6 +41,11 @@ def load_config(config_path: str | Path | None = None) -> dict[str, Any]:
         "field_name": get("microinvest", "field_name"),
         "field_barcode": get("microinvest", "field_barcode"),
         "field_ntin": get("microinvest", "field_ntin"),
+        "field_catalog": get(
+            "microinvest",
+            "field_catalog",
+            "WindowsForms10.EDIT.app.0.34f5582_r8_ad18",
+        ),
         "price_dir": resolve(price_rel),
         "log_dir": resolve(log_rel),
         "result_file": resolve(result_rel),
@@ -72,6 +77,15 @@ def load_config(config_path: str | Path | None = None) -> dict[str, Any]:
         "col_name": [x.strip() for x in get("excel", "col_name").split("|") if x.strip()],
         "col_brand": [x.strip() for x in get("excel", "col_brand").split("|") if x.strip()],
         "col_model": [x.strip() for x in get("excel", "col_model").split("|") if x.strip()],
+        "col_catalog": [
+            x.strip()
+            for x in get(
+                "excel",
+                "col_catalog",
+                "Оригинальный номер|Номер OE|Номер ОЕ|OE номер|Каталожный номер|Каталожный №|Каталожный№|OEM|Номер",
+            ).split("|")
+            if x.strip()
+        ],
         "ignore_article_columns": _as_bool(get("excel", "ignore_article_columns", "true"), True),
         "excel_search_article_columns": _as_bool(
             get("excel", "excel_search_article_columns", "false"), False

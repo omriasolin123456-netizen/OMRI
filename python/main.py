@@ -36,6 +36,7 @@ def _emergency_result(result_path: Path | None, query: str, message: str) -> Non
             "message": message,
             "name": "",
             "barcode": query,
+            "catalog_number": "",
             "ntin": "",
             "ntin_missing": True,
         }
@@ -49,6 +50,7 @@ def _emergency_result(result_path: Path | None, query: str, message: str) -> Non
             f"message={payload['message']}",
             f"name=",
             f"barcode={query}",
+            f"catalog_number=",
             f"ntin=",
             f"ntin_missing=true",
         ]
@@ -72,6 +74,7 @@ def write_result(path: Path, payload: dict[str, Any]) -> None:
         f"message={payload.get('message', '')}",
         f"name={payload.get('name', '')}",
         f"barcode={payload.get('barcode', '')}",
+        f"catalog_number={payload.get('catalog_number', '')}",
         f"ntin={payload.get('ntin', '')}",
         f"ntin_missing={str(payload.get('ntin_missing', True)).lower()}",
     ]
@@ -153,6 +156,7 @@ def _run_with_progress(
             "message": f"Товар по запросу {query} не найден.",
             "name": "",
             "barcode": barcode,
+            "catalog_number": "",
             "ntin": "",
             "ntin_missing": True,
         }
@@ -171,6 +175,7 @@ def _run_with_progress(
             "message": f"Товар по запросу {parsed.cleaned} не найден.",
             "name": "",
             "barcode": barcode,
+            "catalog_number": "",
             "ntin": "",
             "ntin_missing": True,
         }
@@ -186,6 +191,7 @@ def _run_with_progress(
             "message": "Подходящий товар не выбран. Данные в Microinvest не изменены.",
             "name": "",
             "barcode": barcode,
+            "catalog_number": "",
             "ntin": "",
             "ntin_missing": True,
         }
@@ -233,6 +239,7 @@ def _run_with_progress(
                 "message": f"Товар по запросу {parsed.cleaned} не найден.",
                 "name": "",
                 "barcode": barcode,
+            "catalog_number": "",
                 "ntin": "",
                 "ntin_missing": True,
             }
@@ -268,6 +275,11 @@ def _run_with_progress(
                 ntin_missing = True
 
         progress2.set(99, "Сохраняю результат…")
+        catalog_number = (
+            (getattr(chosen, "catalog_number", None) or "")
+            or str((chosen.extra or {}).get("catalog") or "")
+        ).strip()
+
         payload = {
             "status": "ok",
             "message": (
@@ -277,6 +289,7 @@ def _run_with_progress(
             ),
             "name": final_name,
             "barcode": barcode,
+            "catalog_number": catalog_number,
             "ntin": ntin,
             "ntin_missing": ntin_missing,
             "brand": brand,
@@ -365,6 +378,7 @@ def main(argv: list[str] | None = None) -> int:
             "message": f"Ошибка поиска: {exc}",
             "name": "",
             "barcode": args.query,
+            "catalog_number": "",
             "ntin": "",
             "ntin_missing": True,
         }

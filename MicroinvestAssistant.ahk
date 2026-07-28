@@ -17,6 +17,7 @@ global g_WindowTitle := "Microinvest"
 global g_FieldName := "WindowsForms10.EDIT.app.0.19bf6b8_r8_ad110"
 global g_FieldBarcode := "WindowsForms10.EDIT.app.0.19bf6b8_r8_ad19"
 global g_FieldNtin := "WindowsForms10.EDIT.app.0.19bf6b8_r8_ad11"
+global g_FieldCatalog := "WindowsForms10.EDIT.app.0.34f5582_r8_ad18"
 global g_Python := "python"
 global g_Timeout := 120000
 global g_ResultFile := A_ScriptDir . "\logs\last_result.json"
@@ -40,6 +41,7 @@ LoadConfig() {
     IniRead, g_FieldName, %g_ConfigPath%, microinvest, field_name, %g_FieldName%
     IniRead, g_FieldBarcode, %g_ConfigPath%, microinvest, field_barcode, %g_FieldBarcode%
     IniRead, g_FieldNtin, %g_ConfigPath%, microinvest, field_ntin, %g_FieldNtin%
+    IniRead, g_FieldCatalog, %g_ConfigPath%, microinvest, field_catalog, %g_FieldCatalog%
     IniRead, g_Python, %g_ConfigPath%, python, executable, python
     IniRead, g_Timeout, %g_ConfigPath%, python, timeout_ms, 120000
     IniRead, resultRel, %g_ConfigPath%, paths, result_file, logs\last_result.json
@@ -106,7 +108,7 @@ DoCheckPython:
 return
 
 AssistFill() {
-    global g_WindowTitle, g_FieldName, g_FieldBarcode, g_FieldNtin
+    global g_WindowTitle, g_FieldName, g_FieldBarcode, g_FieldNtin, g_FieldCatalog
     global g_Python, g_Timeout, g_ResultFile, g_ResultTxt, g_LogDir
     global g_ResolvedNameNN, g_ResolvedWinId
 
@@ -163,6 +165,7 @@ AssistFill() {
     message := ""
     newName := ""
     barcode := ""
+    catalogNumber := ""
     ntin := ""
     ntinMissing := ""
 
@@ -175,6 +178,7 @@ AssistFill() {
         message := IniGetSection(txtData, "message")
         newName := IniGetSection(txtData, "name")
         barcode := IniGetSection(txtData, "barcode")
+        catalogNumber := IniGetSection(txtData, "catalog_number")
         ntin := IniGetSection(txtData, "ntin")
         ntinMissing := IniGetSection(txtData, "ntin_missing")
     } else if FileExist(g_ResultFile) {
@@ -186,6 +190,7 @@ AssistFill() {
         message := JsonGet(jsonText, "message")
         newName := JsonGet(jsonText, "name")
         barcode := JsonGet(jsonText, "barcode")
+        catalogNumber := JsonGet(jsonText, "catalog_number")
         ntin := JsonGet(jsonText, "ntin")
         ntinMissing := JsonGet(jsonText, "ntin_missing")
     } else {
@@ -218,11 +223,14 @@ AssistFill() {
         barcode := originalQuery
     WriteEditText(winId, g_FieldBarcode, barcode)
 
+    if (catalogNumber != "")
+        WriteEditText(winId, g_FieldCatalog, catalogNumber)
+
     if (ntin != "")
         WriteEditText(winId, g_FieldNtin, ntin)
 
     if (ntinMissing = "true" || ntinMissing = "1" || ntin = "") {
-        MsgBox, 64, Microinvest Assistant, Название найдено, NTIN отсутствует.`n`nИмя: %newName%`nШтрихкод: %barcode%
+        MsgBox, 64, Microinvest Assistant, Название найдено, NTIN отсутствует.`n`nИмя: %newName%`nШтрихкод: %barcode%`nКаталожный №: %catalogNumber%
     } else {
         TrayTip, Microinvest Assistant, Карточка заполнена.`n%newName%, 3, 1
     }

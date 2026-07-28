@@ -29,7 +29,7 @@ logger = logging.getLogger("microinvest_assistant")
 ProgressFn = Callable[[int, str], None]
 
 OE_SPLIT_RE = re.compile(r"\s*//\s*", re.UNICODE)
-INDEX_VERSION = 4
+INDEX_VERSION = 5
 TRAILING_CODE_RE = re.compile(
     r"^(?P<brand>.+?)\s+(?P<code>[A-Za-zА-Яа-я0-9][A-Za-zА-Яа-я0-9\-/]{3,})$",
     re.UNICODE,
@@ -38,6 +38,20 @@ TRAILING_CODE_RE = re.compile(
 TRAILING_BRAND_RE = re.compile(
     r"^(?P<head>.+?)\s+(?P<brand>[A-Za-z][A-Za-z0-9\-_/]{1,24})$",
 )
+OE_INLINE_RE = re.compile(r"//\s*(?:OE)?\s*([A-Za-zА-Яа-я0-9\-]+)\s*//", re.I)
+CATALOG_COLUMN_ALIASES = [
+    "Оригинальный номер",
+    "Номер OE",
+    "Номер ОЕ",
+    "OE номер",
+    "Каталожный номер",
+    "Каталожный №",
+    "Каталожный№",
+    "Catalog",
+    "OEM",
+    "Номер",
+]
+
 
 
 @dataclass
@@ -144,33 +158,73 @@ def split_brand_and_code(tail: str) -> tuple[str, str]:
     return text, ""
 
 
-def parse_slash_nomenclature(raw: str) -> tuple[str, str, str, str]:
-    """Разбор номенклатуры → (name_model, brand, model_hint, trailing_code).
+def normalize_catalog(raw: str) -> str:
+    """«OE4A9513031B» / «OE-4A9513031B» → «4A9513031B»."""
+    s = (raw or "").strip()
+    if not s:
+        return ""
+    m = re.match(r"^OE[\s\-_]*(.+)$", s, re.I)
+    if m and m.group(1).strip():
+        return m.group(1).strip()
+    return s
 
-    Примеры:
-      «Радиатор … //OE191121253К// WXQP 320029»
-        → name, WXQP, '', 320029
-      «Амортизатор … //OE4A9513031B//ENGLIIAN»
-        → name, ENGLIIAN, '', ''
+
+def extract_oe_from_text(text: str) -> str:
+    """Достаёт каталожный/OE из «… //OE4A9513031B// БРЕНД»."""
+    m = OE_INLINE_RE.search(text or "")
+    if not m:
+        return ""
+    return normalize_catalog(m.group(1) or "")
+
+
+def extract_catalog_from_row(
+    row: pd.Series,
+    columns: list[str],
+    raw_text: str = "",
+    aliases: list[str] | None = None,
+) -> str:
+    """Каталожный номер из колонок или из //OE…// в номенклатуре."""
+    for alias in aliases or CATALOG_COLUMN_ALIASES:
+        col = _find_column(columns, [alias])
+        if not col:
+            continue
+        val = normalize_catalog(_cell_str(row.get(col)))
+        if val:
+            return val
+    if raw_text:
+        oe = extract_oe_from_text(raw_text)
+        if oe:
+            return oe
+    return ""
+
+
+def parse_slash_nomenclature(raw: str) -> tuple[str, str, str, str, str]:
+    """Разбор номенклатуры → (name_model, brand, model_hint, trailing_code, oe_catalog).
+
+    «Амортизатор задний Audi 100 C4 усиленный //OE4A9513031B//ENGLIIAN»
+      → name, ENGLIIAN, '', '', 4A9513031B
+    «Радиатор … //OE191121253К// WXQP 320029»
+      → name, WXQP, '', 320029, 191121253К
     """
     text = str(raw or "").strip()
     if not text:
-        return "", "", "", ""
+        return "", "", "", "", ""
 
+    oe_catalog = extract_oe_from_text(text)
     parts = [p.strip() for p in OE_SPLIT_RE.split(text) if p.strip()]
     if len(parts) >= 3 and parts[1].upper().startswith("OE"):
         name_model = parts[0]
         brand, code = split_brand_and_code(parts[-1])
-        return name_model, brand, "", code
+        if not oe_catalog:
+            oe_catalog = normalize_catalog(parts[1])
+        return name_model, brand, "", code, oe_catalog
     if len(parts) == 2:
         brand, code = split_brand_and_code(parts[1])
-        return parts[0], brand, "", code
-    # Без // — возможно «Название БРЕНД 320029» в конце
+        return parts[0], brand, "", code, oe_catalog
     brand, code = split_brand_and_code(text)
     if code:
-        # brand здесь на самом деле «всё до кода» — оставим как name, бренд пустой
-        return brand, "", "", code
-    return text, "", "", ""
+        return brand, "", "", code, oe_catalog
+    return text, "", "", "", oe_catalog
 
 
 def split_trailing_brand(name: str) -> tuple[str, str]:
@@ -378,6 +432,7 @@ class IndexRow:
     source: str
     blob_norm: str
     blob_compact: str
+    catalog: str = ""
 
 
 def _cache_path(cfg: dict[str, Any]) -> Path:
@@ -399,11 +454,12 @@ def _build_index_rows(
         for _, row in df.iterrows():
             parsed = _row_from_format(row, columns, fmt, cfg)
             if parsed:
-                row_name, row_model, row_brand = parsed
+                row_name, row_model, row_brand, row_catalog = parsed
             else:
                 row_name = ""
                 row_model = ""
                 row_brand = ""
+                row_catalog = ""
                 for c in columns:
                     s = _cell_str(row.get(c))
                     if s and not s.replace(".", "", 1).isdigit():
@@ -411,6 +467,7 @@ def _build_index_rows(
                         break
                 if not row_name:
                     continue
+                row_catalog = extract_catalog_from_row(row, columns, row_name)
 
             blob = _row_all_text(row, columns)
             if not blob.strip():
@@ -427,6 +484,7 @@ def _build_index_rows(
                     source=source,
                     blob_norm=bn,
                     blob_compact=bc,
+                    catalog=row_catalog,
                 )
             )
         if progress:
@@ -491,8 +549,8 @@ def _row_from_format(
     columns: list[str],
     fmt: str,
     cfg: dict[str, Any],
-) -> tuple[str, str, str] | None:
-    """Возвращает (name, model, brand) для строки."""
+) -> tuple[str, str, str, str] | None:
+    """Возвращает (name, model, brand, catalog_number) для строки."""
     col_name = _find_column(
         columns,
         cfg.get("col_name")
@@ -515,6 +573,15 @@ def _row_from_format(
         or ["Мадель", "Модель", "МОДЕЛЬ АВТОМОБИЛЯ", "Модель автомобиля", "Model"],
     )
 
+    def with_catalog(name: str, model: str, brand: str, raw_for_oe: str = "") -> tuple[str, str, str, str]:
+        catalog = extract_catalog_from_row(
+            row,
+            columns,
+            raw_for_oe or name,
+            cfg.get("col_catalog"),
+        )
+        return name, model, brand, catalog
+
     # --- Формат 4: Артикул | Наименование | Модель | Торговая марка ---
     if fmt == "supplier_artikul":
         name_col = col_name or _find_column(columns, ["Наименование"])
@@ -525,17 +592,15 @@ def _row_from_format(
             return None
         sub_col = _find_column(columns, ["Подгруппа"])
         subgroup = _cell_str(row.get(sub_col)) if sub_col else ""
-        # Если наименование короткое («Адаптер B1») — добавим подгруппу
         if subgroup and _norm(subgroup) not in _norm(name):
             if len(name.split()) <= 3:
                 name = f"{subgroup} {name}".strip()
         model = _cell_str(row.get(col_model)) if col_model else ""
         brand_col = col_brand or _find_column(columns, ["Торговая марка"])
         brand = _cell_str(row.get(brand_col)) if brand_col else ""
-        # Убрать хвост OE из бренда вида «SRR OE»
         if brand.upper().endswith(" OE"):
             brand = brand[:-3].strip()
-        return name, model, brand
+        return with_catalog(name, model, brand)
 
     # --- Формат 5: Код производителя | Номер OE | Наименование | Марка ---
     if fmt == "kod_proizvoditelya":
@@ -545,17 +610,14 @@ def _row_from_format(
         raw_name = _cell_str(row.get(name_col))
         if not raw_name:
             return None
-        # Марка здесь — марка авто (Audi/VW), используем как модель, если нет отдельной
         marka_col = _find_column(columns, ["Марка"])
         marka = _cell_str(row.get(marka_col)) if marka_col else ""
         name, brand = split_trailing_brand(raw_name)
         model = marka
-        # Если бренд не отделился, а в имени есть известный хвост — model=marka, brand=""
         if brand and _norm(brand) in _norm(marka):
-            # «Audi» как бренд запчасти маловероятно — вернём в имя
             name = raw_name
             brand = ""
-        return name, model, brand
+        return with_catalog(name, model, brand, raw_name)
 
     if fmt == "slash_nomenclature":
         raw_col = col_name or _find_column(
@@ -571,10 +633,11 @@ def _row_from_format(
         if not raw_col:
             return None
         raw = _cell_str(row.get(raw_col))
-        name_model, brand, _, _code = parse_slash_nomenclature(raw)
+        name_model, brand, _, _code, oe = parse_slash_nomenclature(raw)
         if not name_model:
             return None
-        return name_model.strip(), "", brand.strip()
+        catalog = oe or extract_catalog_from_row(row, columns, raw, cfg.get("col_catalog"))
+        return name_model.strip(), "", brand.strip(), catalog
 
     if fmt == "tovar_proizvoditel":
         t_col = _find_column(columns, ["Товар"]) or col_name
@@ -585,7 +648,7 @@ def _row_from_format(
         brand = _cell_str(row.get(b_col)) if b_col else ""
         if not name:
             return None
-        return name, "", brand
+        return with_catalog(name, "", brand, name)
 
     if not col_name:
         return None
@@ -593,16 +656,17 @@ def _row_from_format(
     if not name:
         return None
     if "//" in name:
-        name_model, brand2, _, _code = parse_slash_nomenclature(name)
+        name_model, brand2, _, _code, oe = parse_slash_nomenclature(name)
         brand = brand2
         model = ""
         if col_brand and not brand:
             brand = _cell_str(row.get(col_brand))
-        return name_model, model, brand
+        catalog = oe or extract_catalog_from_row(row, columns, name, cfg.get("col_catalog"))
+        return name_model, model, brand, catalog
 
     brand = _cell_str(row.get(col_brand)) if col_brand else ""
     model = _cell_str(row.get(col_model)) if col_model else ""
-    return name, model, brand
+    return with_catalog(name, model, brand, name)
 
 
 def search_excel_candidates(
@@ -654,7 +718,8 @@ def search_excel_candidates(
                     title=row.name,
                     model=row.model,
                     source="excel",
-                    extra={"file": row.source, "match": "price"},
+                    catalog_number=getattr(row, "catalog", "") or "",
+                    extra={"file": row.source, "match": "price", "catalog": getattr(row, "catalog", "") or ""},
                 ),
             )
         )
@@ -716,7 +781,7 @@ def search_excel(
                 parsed = _row_from_format(row, columns, fmt, cfg)
                 if not parsed:
                     continue
-                row_name, row_model, row_brand = parsed
+                row_name, row_model, row_brand, _catalog = parsed
                 if not row_name.strip():
                     continue
                 score_name = " ".join(p for p in (row_name, row_model) if p)
