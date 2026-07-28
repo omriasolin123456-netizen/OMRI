@@ -78,6 +78,8 @@ gw_search = https://nationalcatalog.kz/gw/search/api/v1/search
 5. **Код производителя | Номер OE | Наименование | Марка**
 
 Код из «Имя» ищется по всей строке (Артикул, OE, Код производителя и т.д.).
+**Каталожный номер** берётся из колонок `Оригинальный номер` / `Номер OE` / `Каталожный №` / `Номер`
+или из фрагмента `//OE4A9513031B//` в номенклатуре → в поле Microinvest «Каталожный номер».
 Итоговое имя: **Наименование + Модель + Бренд**.
 
 Примеры в `price\`: `format4_supplier_artikul.xlsx`, `format5_kod_proizvoditelya.xlsx` и др.
@@ -97,6 +99,7 @@ ClassNN по умолчанию (ваша сборка 3.07.075):
 - Имя: `WindowsForms10.EDIT.app.0.19bf6b8_r8_ad110`
 - Штрихкод: `WindowsForms10.EDIT.app.0.19bf6b8_r8_ad19`
 - NTIN: `WindowsForms10.EDIT.app.0.19bf6b8_r8_ad11`
+- Каталожный номер: `WindowsForms10.EDIT.app.0.34f5582_r8_ad18` (поиск по суффиксу `_ad18`)
 
 Если после перезапуска Windows суффикс `_r8_` изменился, AHK попытается найти поле по окончанию `_adNNN`. При сбое поправьте ClassNN в `config.ini` (через Window Spy AutoHotkey).
 
