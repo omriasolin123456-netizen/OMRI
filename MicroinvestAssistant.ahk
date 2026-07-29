@@ -13,6 +13,7 @@ CoordMode, Mouse, Screen
 
 global g_ConfigPath := A_ScriptDir . "\config.ini"
 global g_Hotkey := "F8"
+global g_HotkeyNtin := "F7"
 global g_WindowTitle := "Microinvest"
 global g_FieldName := "WindowsForms10.EDIT.app.0.19bf6b8_r8_ad110"
 global g_FieldBarcode := "WindowsForms10.EDIT.app.0.19bf6b8_r8_ad19"
@@ -37,6 +38,7 @@ LoadConfig() {
         return
     }
     IniRead, g_Hotkey, %g_ConfigPath%, hotkey, key, F8
+    IniRead, g_HotkeyNtin, %g_ConfigPath%, hotkey, ntin_key, F7
     IniRead, g_WindowTitle, %g_ConfigPath%, microinvest, window_title, Microinvest
     IniRead, g_FieldName, %g_ConfigPath%, microinvest, field_name, %g_FieldName%
     IniRead, g_FieldBarcode, %g_ConfigPath%, microinvest, field_barcode, %g_FieldBarcode%
@@ -67,16 +69,22 @@ LoadConfig() {
 }
 
 RegisterHotkey() {
-    global g_Hotkey
+    global g_Hotkey, g_HotkeyNtin
     Hotkey, IfWinActive
     try {
         Hotkey, %g_Hotkey%, DoAssist, On
     } catch e {
         MsgBox, 16, Microinvest Assistant, Не удалось зарегистрировать горячую клавишу: %g_Hotkey%
     }
-    Menu, Tray, Tip, Microinvest Parts Assistant (%g_Hotkey%)
+    try {
+        Hotkey, %g_HotkeyNtin%, DoNtinOnly, On
+    } catch e {
+        MsgBox, 16, Microinvest Assistant, Не удалось зарегистрировать клавишу NTIN: %g_HotkeyNtin%
+    }
+    Menu, Tray, Tip, Microinvest Parts Assistant (F8 поиск / F7 NTIN)
     Menu, Tray, NoStandard
-    Menu, Tray, Add, Запустить поиск, DoAssist
+    Menu, Tray, Add, F8 — поиск и заполнение, DoAssist
+    Menu, Tray, Add, F7 — только NTIN по имени, DoNtinOnly
     Menu, Tray, Add, Диагностика полей, DoDiagnose
     Menu, Tray, Add, Проверить Python, DoCheckPython
     Menu, Tray, Add, Перезагрузить настройки, ReloadConfig
@@ -95,6 +103,11 @@ ExitApp
 DoAssist:
     Critical, Off
     AssistFill()
+return
+
+DoNtinOnly:
+    Critical, Off
+    AssistNtinOnly()
 return
 
 DoDiagnose:
@@ -234,6 +247,99 @@ AssistFill() {
     } else {
         TrayTip, Microinvest Assistant, Карточка заполнена.`n%newName%, 3, 1
     }
+}
+
+; F7 — только поиск NTIN по текущему полю «Имя»
+AssistNtinOnly() {
+    global g_FieldName, g_FieldNtin
+    global g_ResultFile, g_ResultTxt, g_LogDir
+
+    if !FileExist(g_LogDir)
+        FileCreateDir, %g_LogDir%
+
+    winId := FindCardWindow(g_FieldName)
+    if (!winId) {
+        MsgBox, 48, Microinvest Assistant, Не найдено окно карточки.`nОткройте карточку, кликните в «Имя» и нажмите F7.
+        return
+    }
+
+    nameText := ReadEditText(winId, g_FieldName, true)
+    nameText := Trim(nameText)
+    if (nameText = "") {
+        MsgBox, 48, Microinvest Assistant, Поле «Имя» пустое.`nСначала заполните наименование, затем F7.
+        return
+    }
+
+    if FileExist(g_ResultFile)
+        FileDelete, %g_ResultFile%
+    if FileExist(g_ResultTxt)
+        FileDelete, %g_ResultTxt%
+
+    launcher := A_ScriptDir . "\python\run_ntin.cmd"
+    if !FileExist(launcher) {
+        MsgBox, 16, Microinvest Assistant, Не найден python\run_ntin.cmd
+        return
+    }
+
+    queryFile := g_LogDir . "\query.txt"
+    oldEnc := A_FileEncoding
+    FileEncoding, UTF-8
+    FileDelete, %queryFile%
+    FileAppend, %nameText%, %queryFile%
+    FileEncoding, %oldEnc%
+
+    TrayTip, Microinvest Assistant, F7: поиск NTIN…, 2, 1
+    RunWait, "%launcher%", %A_ScriptDir%, Hide UseErrorLevel
+    exitCode := ErrorLevel
+
+    status := ""
+    message := ""
+    ntin := ""
+    ntinMissing := ""
+
+    if FileExist(g_ResultTxt) {
+        oldEnc := A_FileEncoding
+        FileEncoding, UTF-16
+        FileRead, txtData, %g_ResultTxt%
+        FileEncoding, %oldEnc%
+        status := IniGetSection(txtData, "status")
+        message := IniGetSection(txtData, "message")
+        ntin := IniGetSection(txtData, "ntin")
+        ntinMissing := IniGetSection(txtData, "ntin_missing")
+    } else if FileExist(g_ResultFile) {
+        oldEnc := A_FileEncoding
+        FileEncoding, UTF-8
+        FileRead, jsonText, %g_ResultFile%
+        FileEncoding, %oldEnc%
+        status := JsonGet(jsonText, "status")
+        message := JsonGet(jsonText, "message")
+        ntin := JsonGet(jsonText, "ntin")
+        ntinMissing := JsonGet(jsonText, "ntin_missing")
+    } else {
+        MsgBox, 16, Microinvest Assistant, Python не вернул результат NTIN.`nКод: %exitCode%`nСм. logs\python_stderr.log
+        return
+    }
+
+    if (status = "cancelled") {
+        TrayTip, Microinvest Assistant, NTIN не выбран., 2, 1
+        return
+    }
+
+    if (status != "ok" || ntin = "") {
+        if (message = "")
+            message := "NTIN не найден."
+        MsgBox, 48, Microinvest Assistant, %message%
+        return
+    }
+
+    if WinExist("ahk_id " . winId)
+        WinActivate, ahk_id %winId%
+
+    if !WriteEditText(winId, g_FieldNtin, ntin) {
+        MsgBox, 16, Microinvest Assistant, Не удалось записать поле NTIN.`nПроверьте field_ntin в config.ini
+        return
+    }
+    TrayTip, Microinvest Assistant, NTIN заполнен: %ntin%, 3, 1
 }
 
 CheckPython() {

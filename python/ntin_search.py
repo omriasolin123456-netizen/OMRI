@@ -224,12 +224,68 @@ def search_ntin_candidates(
         return []
 
     variants = build_ntin_query_variants(barcode, product_name, model, brand)
+    return _search_ntin_variants(
+        variants,
+        cfg,
+        rank_name=product_name,
+        rank_brand=brand,
+        rank_barcode=barcode,
+    )
+
+
+def search_ntin_by_full_name(full_name: str, cfg: dict[str, Any]) -> list[NtinCandidate]:
+    """F7: разбор полного «Имени» → параллельные запросы NTIN."""
+    if not cfg.get("ntin_enabled", True):
+        return []
+    from name_parser import build_ntin_queries_from_name, parse_part_name
+
+    parsed = parse_part_name(full_name)
+    max_q = int(cfg.get("ntin_max_queries") or 10)
+    variants = build_ntin_queries_from_name(full_name, max_queries=max_q)
+    logger.info(
+        "F7 NTIN parse: part=%r models=%s specs=%s brands=%s",
+        parsed.part,
+        parsed.models,
+        parsed.specs,
+        parsed.brands,
+    )
+    return _search_ntin_variants(
+        variants,
+        cfg,
+        rank_name=parsed.part or full_name,
+        rank_brand=parsed.primary_brand,
+        rank_barcode="",
+        prefer_tokens=_tokens_for_rank(parsed),
+    )
+
+
+def _tokens_for_rank(parsed) -> set[str]:
+    toks: set[str] = set()
+    for chunk in (
+        [parsed.part],
+        parsed.models,
+        parsed.specs,
+        parsed.brands,
+    ):
+        for c in chunk:
+            for t in re.findall(r"[A-Za-zА-Яа-яЁё0-9]{2,}", str(c).lower()):
+                toks.add(t)
+    return toks
+
+
+def _search_ntin_variants(
+    variants: list[tuple[str, int]],
+    cfg: dict[str, Any],
+    rank_name: str = "",
+    rank_brand: str = "",
+    rank_barcode: str = "",
+    prefer_tokens: set[str] | None = None,
+) -> list[NtinCandidate]:
     if not variants:
         return []
 
-    # Скорость: короткий таймаут, меньше page size, все запросы параллельно
-    timeout = float(cfg.get("ntin_timeout") or 4)
-    max_queries = int(cfg.get("ntin_max_queries") or 8)
+    timeout = float(cfg.get("ntin_timeout") or 3)
+    max_queries = int(cfg.get("ntin_max_queries") or 10)
     variants = variants[:max_queries]
 
     logger.info(
@@ -254,7 +310,7 @@ def search_ntin_candidates(
             seen.add(c.ntin)
             found.append(c)
 
-    workers = min(6, len(variants))
+    workers = min(8, len(variants))
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futs = {
             pool.submit(_search_ntin_gateway, q, cfg, timeout, prio): (q, prio)
@@ -272,26 +328,29 @@ def search_ntin_candidates(
                 c.priority = prio
             merge(batch)
 
-    # Если gateway пуст и есть токен — один запасной запрос (полный)
     token = (cfg.get("ntin_api_token") or "").strip()
-    if not found and token:
-        full = build_ntin_query(product_name, model, brand) or barcode
-        if full:
-            for c in _search_ntin_api_list(full, token, cfg, timeout):
-                c.query = full
-                c.priority = 10
-                merge([c])
+    if not found and token and variants:
+        full = variants[0][0]
+        for c in _search_ntin_api_list(full, token, cfg, timeout):
+            c.query = full
+            c.priority = 10
+            merge([c])
 
-    if not found and cfg.get("ntin_web_search", False):
-        full = build_ntin_query(product_name, model, brand) or barcode
-        if full:
-            for c in _search_ntin_web_list(full, timeout):
-                c.query = full
-                c.priority = 20
-                merge([c])
+    if not found and cfg.get("ntin_web_search", False) and variants:
+        full = variants[0][0]
+        for c in _search_ntin_web_list(full, timeout):
+            c.query = full
+            c.priority = 20
+            merge([c])
 
-    found = _filter_ntin_noise(found, product_name, brand, barcode)
-    found = _rank_ntin(found, product_name, brand, barcode)
+    found = _filter_ntin_noise(found, rank_name, rank_brand, rank_barcode)
+    found = _rank_ntin(
+        found,
+        rank_name,
+        rank_brand,
+        rank_barcode,
+        prefer_tokens=prefer_tokens,
+    )
     logger.info("NTIN кандидатов: %s", len(found))
     return found[:12]
 
@@ -342,11 +401,14 @@ def _rank_ntin(
     product_name: str,
     brand: str,
     barcode: str,
+    prefer_tokens: set[str] | None = None,
 ) -> list[NtinCandidate]:
     q_tokens = {
         t.lower()
         for t in re.findall(r"[A-Za-zА-Яа-я0-9]{2,}", f"{product_name} {brand}")
     }
+    if prefer_tokens:
+        q_tokens |= {t.lower() for t in prefer_tokens}
     b = (brand or "").strip().lower()
     code = re.sub(r"[^A-Za-zА-Яа-я0-9]", "", (barcode or "")).lower()
 
@@ -356,7 +418,7 @@ def _rank_ntin(
         brand_hit = 0 if (b and b in name_l) else 1
         code_hit = 0 if (code and code in re.sub(r"[^a-z0-9а-я]", "", name_l)) else 1
         auto_hit = 0 if c.is_auto else 1
-        return (auto_hit, c.priority, code_hit, -hits, brand_hit, c.name)
+        return (-hits, auto_hit, c.priority, code_hit, brand_hit, c.name)
 
     return sorted(items, key=key)
 
