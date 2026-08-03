@@ -173,21 +173,27 @@ def select_candidate(candidates: Sequence[PartCandidate], query: str) -> PartCan
 
     def confirm_list(_event=None):
         if not candidates:
-            return
+            return "break"
         sel = tree.selection()
         if not sel:
-            return
+            # если синим не видно — берём первую строку
+            kids = tree.get_children()
+            if not kids:
+                return "break"
+            tree.selection_set(kids[0])
+            sel = tree.selection()
         idx = tree.index(sel[0])
         if idx < 0 or idx >= len(candidates):
-            return
+            return "break"
         selected["value"] = candidates[idx]
         root.destroy()
+        return "break"
 
     def confirm_manual(_event=None):
         name = name_var.get().strip()
         if not name:
             messagebox.showwarning("Ручной ввод", "Укажите наименование товара.")
-            return
+            return "break"
         model = model_var.get().strip()
         brand = brand_var.get().strip()
         catalog = ""
@@ -205,26 +211,46 @@ def select_candidate(candidates: Sequence[PartCandidate], query: str) -> PartCan
             catalog_number=catalog,
         )
         root.destroy()
+        return "break"
 
     def cancel(_event=None):
         selected["value"] = None
         root.destroy()
+        return "break"
 
-    ttk.Button(btns, text="OK (из списка)", command=confirm_list).pack(side=tk.RIGHT, padx=(6, 0))
+    # Enter / цифровая Enter всегда подтверждают выделенную (или первую) строку
+    btn_ok = ttk.Button(btns, text="OK (Enter)", command=confirm_list)
+    btn_ok.pack(side=tk.RIGHT, padx=(6, 0))
     ttk.Button(btns, text="Использовать ручной ввод", command=confirm_manual).pack(side=tk.RIGHT, padx=(6, 0))
-    ttk.Button(btns, text="Отмена", command=cancel).pack(side=tk.RIGHT)
+    ttk.Button(btns, text="Отмена (Esc)", command=cancel).pack(side=tk.RIGHT)
+
+    def on_return(event=None):
+        # Не даём Enter «проглотиться» Treeview/кнопками и закрыть окно без выбора
+        return confirm_list(event)
 
     root.bind("<Escape>", cancel)
-    root.bind("<Return>", confirm_list)
+    for w in (root, tree, detail_entry, name_entry, btn_ok):
+        w.bind("<Return>", on_return)
+        w.bind("<KP_Enter>", on_return)
     tree.bind("<Double-Button-1>", confirm_list)
     root.protocol("WM_DELETE_WINDOW", cancel)
+    # Глобально на время диалога — иначе Enter в Treeview раньше просто закрывал окно
+    root.bind_all("<Return>", on_return)
+    root.bind_all("<KP_Enter>", on_return)
 
     if candidates:
         tree.focus_set()
     else:
         name_entry.focus_set()
 
-    root.mainloop()
+    try:
+        root.mainloop()
+    finally:
+        try:
+            root.unbind_all("<Return>")
+            root.unbind_all("<KP_Enter>")
+        except tk.TclError:
+            pass
     return selected["value"]
 
 
@@ -287,20 +313,35 @@ def select_ntin(candidates, query: str):
     def ok(_e=None):
         sel = tree.selection()
         if not sel:
-            return
+            kids = tree.get_children()
+            if not kids:
+                return "break"
+            tree.selection_set(kids[0])
+            sel = tree.selection()
         idx = tree.index(sel[0])
         picked["value"] = candidates[idx]
         root.destroy()
+        return "break"
 
     def skip(_e=None):
         picked["value"] = None
         root.destroy()
+        return "break"
 
-    ttk.Button(btns, text="OK", command=ok).pack(side=tk.RIGHT, padx=(6, 0))
-    ttk.Button(btns, text="Пропустить NTIN", command=skip).pack(side=tk.RIGHT)
+    ttk.Button(btns, text="OK (Enter)", command=ok).pack(side=tk.RIGHT, padx=(6, 0))
+    ttk.Button(btns, text="Пропустить NTIN (Esc)", command=skip).pack(side=tk.RIGHT)
     tree.bind("<Double-Button-1>", ok)
-    root.bind("<Return>", ok)
     root.bind("<Escape>", skip)
     root.protocol("WM_DELETE_WINDOW", skip)
-    root.mainloop()
+    root.bind_all("<Return>", ok)
+    root.bind_all("<KP_Enter>", ok)
+    tree.focus_set()
+    try:
+        root.mainloop()
+    finally:
+        try:
+            root.unbind_all("<Return>")
+            root.unbind_all("<KP_Enter>")
+        except tk.TclError:
+            pass
     return picked["value"]

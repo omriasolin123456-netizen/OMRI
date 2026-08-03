@@ -1,8 +1,9 @@
-"""Быстрый поиск автозапчасти: сначала Excel, при отсутствии — интернет (FAPI)."""
+"""Быстрый поиск автозапчасти: сначала Excel, при отсутствии — интернет (FAPI + бренды)."""
 from __future__ import annotations
 
 import logging
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
@@ -11,6 +12,20 @@ import requests
 logger = logging.getLogger("microinvest_assistant")
 
 ProgressFn = Callable[[int, str], None]
+
+DEFAULT_BRANDS = [
+    "WXQP",
+    "ESEE",
+    "OSSCA",
+    "CNAB",
+    "LEON",
+    "LADA",
+    "Superzing",
+    "Bear",
+    "BOSCH",
+    "CHECKSTAR",
+]
+DEFAULT_KEYWORDS = ["автозапчасть", "запчасть", "авто"]
 
 
 @dataclass
@@ -72,6 +87,16 @@ def article_compatible(article: str, query: str) -> bool:
     return False
 
 
+def _preferred_brands(cfg: dict[str, Any]) -> list[str]:
+    brands = cfg.get("preferred_brands") or DEFAULT_BRANDS
+    return [b.strip() for b in brands if str(b).strip()]
+
+
+def _web_keywords(cfg: dict[str, Any]) -> list[str]:
+    kws = cfg.get("web_keywords") or DEFAULT_KEYWORDS
+    return [k.strip() for k in kws if str(k).strip()]
+
+
 def search_fapi(
     query: str,
     cfg: dict[str, Any],
@@ -79,7 +104,6 @@ def search_fapi(
 ) -> list[PartCandidate]:
     key = cfg.get("fapi_key") or ""
     base = cfg.get("fapi_base") or "https://fapi.iisis.ru/fapi/v2"
-    # Короткий таймаут — «супербыстрый» интернет
     timeout = float(cfg.get("http_timeout") or 4)
     if not key:
         return []
@@ -137,10 +161,7 @@ def search_parts(
     cfg: dict[str, Any],
     progress: ProgressFn | None = None,
 ) -> list[PartCandidate]:
-    """1) Только Excel. 2) Если пусто — быстрый интернет (FAPI).
-
-    Omega и медленный DDG по умолчанию не вызываются.
-    """
+    """1) Excel. 2) Если пусто — интернет: FAPI + приоритетные бренды + ключевые слова."""
     from excel_search import search_excel_candidates
 
     query = variants[0] if variants else ""
@@ -148,6 +169,8 @@ def search_parts(
         return []
 
     limit = int(cfg.get("max_candidates") or 12)
+    brands = _preferred_brands(cfg)
+    keywords = _web_keywords(cfg)
 
     if progress:
         progress(5, "Старт: сначала ваши Excel…")
@@ -158,26 +181,58 @@ def search_parts(
             progress(90, f"Готово из Excel: {len(excel)} вариант(ов)")
         return excel[:limit]
 
-    # Нет подходящего в Excel → интернет
     if progress:
         progress(74, "В Excel нет — быстрый поиск в интернете…")
 
-    fapi = search_fapi(query, cfg, progress=progress)
+    # Параллельно: базовый код + несколько бренд-запросов (ограничено для скорости)
+    brand_queries = [f"{query} {b}" for b in brands[:6]]
+    kw_queries = [f"{query} {k}" for k in keywords[:2]]
+
+    fapi_all: list[PartCandidate] = []
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        futs = {pool.submit(search_fapi, query, cfg, None): query}
+        for bq in brand_queries[:4]:
+            futs[pool.submit(search_fapi, bq, cfg, None)] = bq
+        done = 0
+        total = len(futs)
+        for fut in as_completed(futs):
+            done += 1
+            try:
+                fapi_all.extend(fut.result())
+            except Exception as exc:
+                logger.error("FAPI parallel: %s", exc)
+            if progress:
+                progress(78 + int(10 * done / max(total, 1)), f"Интернет {done}/{total}…")
 
     web: list[PartCandidate] = []
-    if not fapi and cfg.get("enable_web_enrichment", False):
+    if cfg.get("enable_web_enrichment", True):
         if progress:
-            progress(86, "Доп. веб-поиск…")
-        web = _quick_web(query, cfg)
+            progress(86, "Доп. веб-поиск по брендам/словам…")
+        web = _quick_web_branded(query, brands, keywords, cfg)
 
     prefer = soft_norm_article(query)
+    brand_rank = {b.lower(): i for i, b in enumerate(brands)}
 
     def rank(c: PartCandidate) -> tuple:
         src = {"excel": 0, "fapi": 1, "web": 2, "manual": 0, "omega": 3}.get(c.source, 9)
         exact = 0 if soft_norm_article(c.article) == prefer else 1
-        return (src, exact, c.brand, c.title)
+        bl = (c.brand or "").lower()
+        # приоритетные фирмы сверху
+        br = 0
+        for name, idx in brand_rank.items():
+            if name and name in bl:
+                br = idx
+                break
+        else:
+            br = 50
+        # в title тоже ищем бренд
+        title_l = (c.title or "").lower()
+        for name, idx in brand_rank.items():
+            if name and name in title_l:
+                br = min(br, idx)
+        return (src, br, exact, c.brand, c.title)
 
-    merged = fapi + web
+    merged = fapi_all + web
     seen: set[str] = set()
     uniq: list[PartCandidate] = []
     for c in merged:
@@ -193,23 +248,68 @@ def search_parts(
     return uniq[:limit]
 
 
-def _quick_web(query: str, cfg: dict[str, Any]) -> list[PartCandidate]:
+def _quick_web_branded(
+    query: str,
+    brands: list[str],
+    keywords: list[str],
+    cfg: dict[str, Any],
+) -> list[PartCandidate]:
     try:
         from ddgs import DDGS  # type: ignore
     except ImportError:
-        return []
+        try:
+            from duckduckgo_search import DDGS  # type: ignore
+        except ImportError:
+            return []
+
+    # Короткий набор запросов для скорости
+    searches = [f"{query} {kw}" for kw in (keywords or DEFAULT_KEYWORDS)[:2]]
+    for b in (brands or DEFAULT_BRANDS)[:4]:
+        searches.append(f"{query} {b}")
+
     out: list[PartCandidate] = []
+    seen_titles: set[str] = set()
     try:
         ddgs = DDGS()
-        results = list(ddgs.text(f"{query} автозапчасть", max_results=5))
+        for q in searches:
+            try:
+                results = list(ddgs.text(q, max_results=3))
+            except Exception:
+                continue
+            for r in results:
+                title = (r.get("title") or "").strip()
+                if len(title) < 5:
+                    continue
+                clean = re.split(r"\s[\|\-–—]\s", title)[0].strip()[:160]
+                key = clean.lower()
+                if key in seen_titles:
+                    continue
+                seen_titles.add(key)
+                # угадать бренд из списка
+                brand = ""
+                cl = clean.lower()
+                for b in brands:
+                    if b.lower() in cl:
+                        brand = b
+                        break
+                out.append(
+                    PartCandidate(
+                        brand=brand,
+                        article=query,
+                        title=clean,
+                        source="web",
+                    )
+                )
     except Exception as exc:
         logger.error("Web ошибка: %s", exc)
-        return []
-    for r in results:
-        title = (r.get("title") or "").strip()
-        if len(title) < 5:
-            continue
-        clean = re.split(r"\s[\|\-–—]\s", title)[0].strip()[:160]
-        out.append(PartCandidate(brand="", article=query, title=clean, source="web"))
-    logger.info("Web fallback: %s", len(out))
+        return out
+
+    logger.info("Web branded: %s по «%s»", len(out), query)
     return out
+
+
+def _quick_web(query: str, cfg: dict[str, Any]) -> list[PartCandidate]:
+    """Совместимость: один запрос с первым ключевым словом."""
+    kws = _web_keywords(cfg)
+    kw = kws[0] if kws else "автозапчасть"
+    return _quick_web_branded(query, _preferred_brands(cfg), [kw], cfg)

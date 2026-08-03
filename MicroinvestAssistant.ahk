@@ -19,6 +19,9 @@ global g_FieldName := "WindowsForms10.EDIT.app.0.19bf6b8_r8_ad110"
 global g_FieldBarcode := "WindowsForms10.EDIT.app.0.19bf6b8_r8_ad19"
 global g_FieldNtin := "WindowsForms10.EDIT.app.0.19bf6b8_r8_ad11"
 global g_FieldCatalog := "WindowsForms10.EDIT.app.0.34f5582_r8_ad18"
+; Графа «Каталог» — туда же пишется штрихкод (копия поля Штрих-код)
+global g_FieldCatalogBarcode := "WindowsForms10.EDIT.app.0.19bf6b8_r8_ad14"
+global g_HotkeyCopyCatalog := "F4"
 global g_Python := "python"
 global g_Timeout := 120000
 global g_ResultFile := A_ScriptDir . "\logs\last_result.json"
@@ -39,11 +42,13 @@ LoadConfig() {
     }
     IniRead, g_Hotkey, %g_ConfigPath%, hotkey, key, F8
     IniRead, g_HotkeyNtin, %g_ConfigPath%, hotkey, ntin_key, F7
+    IniRead, g_HotkeyCopyCatalog, %g_ConfigPath%, hotkey, copy_catalog_key, F4
     IniRead, g_WindowTitle, %g_ConfigPath%, microinvest, window_title, Microinvest
     IniRead, g_FieldName, %g_ConfigPath%, microinvest, field_name, %g_FieldName%
     IniRead, g_FieldBarcode, %g_ConfigPath%, microinvest, field_barcode, %g_FieldBarcode%
     IniRead, g_FieldNtin, %g_ConfigPath%, microinvest, field_ntin, %g_FieldNtin%
     IniRead, g_FieldCatalog, %g_ConfigPath%, microinvest, field_catalog, %g_FieldCatalog%
+    IniRead, g_FieldCatalogBarcode, %g_ConfigPath%, microinvest, field_catalog_barcode, %g_FieldCatalogBarcode%
     IniRead, g_Python, %g_ConfigPath%, python, executable, python
     IniRead, g_Timeout, %g_ConfigPath%, python, timeout_ms, 120000
     IniRead, resultRel, %g_ConfigPath%, paths, result_file, logs\last_result.json
@@ -69,7 +74,7 @@ LoadConfig() {
 }
 
 RegisterHotkey() {
-    global g_Hotkey, g_HotkeyNtin
+    global g_Hotkey, g_HotkeyNtin, g_HotkeyCopyCatalog
     Hotkey, IfWinActive
     try {
         Hotkey, %g_Hotkey%, DoAssist, On
@@ -81,10 +86,16 @@ RegisterHotkey() {
     } catch e {
         MsgBox, 16, Microinvest Assistant, Не удалось зарегистрировать клавишу NTIN: %g_HotkeyNtin%
     }
-    Menu, Tray, Tip, Microinvest Parts Assistant (F8 поиск / F7 NTIN)
+    try {
+        Hotkey, %g_HotkeyCopyCatalog%, DoCopyBarcodeToCatalog, On
+    } catch e {
+        MsgBox, 16, Microinvest Assistant, Не удалось зарегистрировать клавишу: %g_HotkeyCopyCatalog%
+    }
+    Menu, Tray, Tip, Microinvest Parts Assistant (F8 / F7 NTIN / F4 каталог)
     Menu, Tray, NoStandard
     Menu, Tray, Add, F8 — поиск и заполнение, DoAssist
     Menu, Tray, Add, F7 — только NTIN по имени, DoNtinOnly
+    Menu, Tray, Add, F4 — штрихкод → Каталог, DoCopyBarcodeToCatalog
     Menu, Tray, Add, Диагностика полей, DoDiagnose
     Menu, Tray, Add, Проверить Python, DoCheckPython
     Menu, Tray, Add, Перезагрузить настройки, ReloadConfig
@@ -110,6 +121,11 @@ DoNtinOnly:
     AssistNtinOnly()
 return
 
+DoCopyBarcodeToCatalog:
+    Critical, Off
+    CopyBarcodeToCatalog()
+return
+
 DoDiagnose:
     Critical, Off
     DiagnoseFields()
@@ -121,7 +137,7 @@ DoCheckPython:
 return
 
 AssistFill() {
-    global g_WindowTitle, g_FieldName, g_FieldBarcode, g_FieldNtin, g_FieldCatalog
+    global g_WindowTitle, g_FieldName, g_FieldBarcode, g_FieldNtin, g_FieldCatalog, g_FieldCatalogBarcode
     global g_Python, g_Timeout, g_ResultFile, g_ResultTxt, g_LogDir
     global g_ResolvedNameNN, g_ResolvedWinId
 
@@ -235,6 +251,8 @@ AssistFill() {
     if (barcode = "")
         barcode := originalQuery
     WriteEditText(winId, g_FieldBarcode, barcode)
+    ; Та же строка, что и штрихкод — в графу «Каталог» (ad14)
+    WriteEditText(winId, g_FieldCatalogBarcode, barcode)
 
     if (catalogNumber != "")
         WriteEditText(winId, g_FieldCatalog, catalogNumber)
@@ -340,6 +358,35 @@ AssistNtinOnly() {
         return
     }
     TrayTip, Microinvest Assistant, NTIN заполнен: %ntin%, 3, 1
+}
+
+; F4 — скопировать текст из «Штрих-код» в графу «Каталог» (ad14)
+CopyBarcodeToCatalog() {
+    global g_FieldName, g_FieldBarcode, g_FieldCatalogBarcode
+
+    winId := FindCardWindow(g_FieldName)
+    if (!winId)
+        winId := FindCardWindow(g_FieldBarcode)
+    if (!winId) {
+        MsgBox, 48, Microinvest Assistant, Не найдено окно карточки.`nОткройте карточку и нажмите F4.
+        return
+    }
+
+    code := ReadEditText(winId, g_FieldBarcode, true)
+    code := Trim(code)
+    if (code = "") {
+        MsgBox, 48, Microinvest Assistant, Поле «Штрих-код» пустое.`nНечего копировать в «Каталог».
+        return
+    }
+
+    if WinExist("ahk_id " . winId)
+        WinActivate, ahk_id %winId%
+
+    if !WriteEditText(winId, g_FieldCatalogBarcode, code) {
+        MsgBox, 16, Microinvest Assistant, Не удалось записать графу «Каталог».`nПроверьте field_catalog_barcode в config.ini`n(%g_FieldCatalogBarcode%)
+        return
+    }
+    TrayTip, Microinvest Assistant, Каталог ← %code%, 2, 1
 }
 
 CheckPython() {

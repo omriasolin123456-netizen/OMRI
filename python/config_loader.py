@@ -46,14 +46,33 @@ def load_config(config_path: str | Path | None = None) -> dict[str, Any]:
             "field_catalog",
             "WindowsForms10.EDIT.app.0.34f5582_r8_ad18",
         ),
+        "field_catalog_barcode": get(
+            "microinvest",
+            "field_catalog_barcode",
+            "WindowsForms10.EDIT.app.0.19bf6b8_r8_ad14",
+        ),
         "price_dir": resolve(price_rel),
         "log_dir": resolve(log_rel),
         "result_file": resolve(result_rel),
         "fapi_key": get("search", "fapi_key"),
         "fapi_base": get("search", "fapi_base", "https://fapi.iisis.ru/fapi/v2").rstrip("/"),
-        "enable_web_enrichment": _as_bool(get("search", "enable_web_enrichment", "false"), False),
+        "enable_web_enrichment": _as_bool(get("search", "enable_web_enrichment", "true"), True),
         "max_candidates": int(get("search", "max_candidates", "10") or 10),
         "http_timeout": float(get("search", "http_timeout", "4") or 4),
+        "preferred_brands": [
+            x.strip()
+            for x in get(
+                "search",
+                "preferred_brands",
+                "WXQP|ESEE|OSSCA|CNAB|LEON|LADA|Superzing|Bear|BOSCH|CHECKSTAR",
+            ).split("|")
+            if x.strip()
+        ],
+        "web_keywords": [
+            x.strip()
+            for x in get("search", "web_keywords", "автозапчасть|запчасть|авто").split("|")
+            if x.strip()
+        ],
         "omega_enabled": _as_bool(get("omega", "enabled", "false"), False),
         "omega_login": get("omega", "login"),
         "omega_api_key": get("omega", "api_key"),
