@@ -1,6 +1,6 @@
 {
-  "version": "2.1.0",
+  "version": "2.1.1",
   "download_url": "https://raw.githubusercontent.com/omriasolin123456-netizen/OMRI/marketplace-poster-updates/release/MarketplacePoster.exe",
-  "sha256": "62f4e376f6d6788a292c513dc07e8c8a0c558e1feb65e20f2b4021119e05e6fc",
-  "notes": "Marketplace Poster 2.1.0\r\n- מערכת רישוי מרכזית: Activation Code, Trial ל-7 ימים ו-Grace Period של 72 שעות.\r\n- תוכניות Trial / Basic / Pro / Business עם מגבלת מכשירים וחשבונות Facebook.\r\n- Trial מוגבל ל-20 פעולות פרסום.\r\n- מסך הפעלה לפני כניסה לתוכנה וסטטוס רישיון בממשק.\r\n- ניהול מספר חשבונות Facebook עם Chrome Profile נפרד לכל חשבון.\r\n- אכיפת מגבלת חשבונות לפי התוכנית בלי לחסום גישה למחיקת חשבונות עודפים.\r\n- המשך תמיכה בעדכון עצמי דרך GitHub."
+  "sha256": "a8193d6bcb07d8f7488ddc045d1d14d92599548c19fb30080ace7316ec4a1090",
+  "notes": "Marketplace Poster 2.1.1\r\n- הוספת Owner License אמיתי ללא תפוגה.\r\n- Owner ללא מגבלת מכשירים, חשבונות Facebook או פעולות פרסום.\r\n- תצוגת ∞ בממשק במקום 0 עבור מגבלות ללא הגבלה.\r\n- Grace ארוך ל-Owner לאחר הפעלה ראשונה."
 }
