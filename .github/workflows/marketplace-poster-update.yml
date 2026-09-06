@@ -1,0 +1,76 @@
+name: Build Marketplace Poster Update
+
+on:
+  push:
+    branches: [marketplace-poster-updates]
+    paths:
+      - 'marketplace-poster/TRIGGER'
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout update branch
+        uses: actions/checkout@v4
+        with:
+          ref: marketplace-poster-updates
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+          cache: false
+
+      - name: Reassemble source package
+        shell: pwsh
+        run: |
+          $parts = Get-ChildItem 'marketplace-poster/source/part*.b64' | Sort-Object Name
+          if ($parts.Count -lt 1) { throw 'Source chunks are missing' }
+          $b64 = ($parts | ForEach-Object { Get-Content $_.FullName -Raw }) -join ''
+          [IO.File]::WriteAllBytes((Join-Path $PWD 'marketplace-poster-source.zip'), [Convert]::FromBase64String($b64))
+          New-Item -ItemType Directory -Force -Path buildsrc | Out-Null
+          Expand-Archive -LiteralPath marketplace-poster-source.zip -DestinationPath buildsrc -Force
+
+      - name: Download Go dependencies
+        working-directory: buildsrc
+        run: go mod tidy
+
+      - name: Test source
+        working-directory: buildsrc
+        run: go test ./...
+
+      - name: Build Windows EXE
+        working-directory: buildsrc
+        run: |
+          New-Item -ItemType Directory -Force -Path ../release | Out-Null
+          go build -trimpath -ldflags "-H=windowsgui -s -w" -o ../release/MarketplacePoster.exe .
+
+      - name: Create signed-by-hash manifest
+        shell: pwsh
+        run: |
+          $version = (Get-Content buildsrc/VERSION -Raw).Trim()
+          $notes = (Get-Content buildsrc/RELEASE_NOTES.txt -Raw).Trim()
+          $hash = (Get-FileHash release/MarketplacePoster.exe -Algorithm SHA256).Hash.ToLower()
+          $manifest = [ordered]@{
+            version = $version
+            download_url = 'https://raw.githubusercontent.com/omriasolin123456-netizen/OMRI/marketplace-poster-updates/release/MarketplacePoster.exe'
+            sha256 = $hash
+            notes = $notes
+          } | ConvertTo-Json
+          [IO.File]::WriteAllText((Join-Path $PWD 'release/manifest.json'), $manifest, (New-Object Text.UTF8Encoding($false)))
+          Set-Content release/MarketplacePoster.exe.sha256 "$hash  MarketplacePoster.exe" -Encoding ascii
+
+      - name: Publish update files
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add release/MarketplacePoster.exe release/MarketplacePoster.exe.sha256 release/manifest.json
+          if (-not (git diff --cached --quiet)) {
+            $version = (Get-Content buildsrc/VERSION -Raw).Trim()
+            git commit -m "Build Marketplace Poster $version [skip ci]"
+            git push origin HEAD:marketplace-poster-updates
+          }
