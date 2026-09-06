@@ -1,0 +1,6 @@
+{
+  "version": "2.0.1",
+  "download_url": "https://raw.githubusercontent.com/omriasolin123456-netizen/OMRI/marketplace-poster-updates/release/MarketplacePoster.exe",
+  "sha256": "a905d131bcaa8e7eb5ddc04d3bb11ec33668dae63539c5ef758f2a1887d32ae9",
+  "notes": "תיקון קריסת templates/history כשהרשימות ריקות; הוספת Check for Updates ועדכון עצמי מאומת SHA-256 דרך GitHub."
+}
