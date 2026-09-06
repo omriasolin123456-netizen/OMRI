@@ -37,17 +37,17 @@ jobs:
       - name: Apply current version patch
         shell: pwsh
         run: |
-          $patchParts = Get-ChildItem 'marketplace-poster/patches/v2.1.0-part*.b64' | Sort-Object Name
+          $patchParts = Get-ChildItem 'marketplace-poster/patches/v2.1.1-part*.b64' | Sort-Object Name
           if ($patchParts.Count -lt 1) { throw 'Version patch chunks are missing' }
           $patchB64 = ($patchParts | ForEach-Object { Get-Content $_.FullName -Raw }) -join ''
-          [IO.File]::WriteAllBytes((Join-Path $PWD 'v2.1.0.patch.gz'), [Convert]::FromBase64String($patchB64))
-          $input = [IO.File]::OpenRead((Join-Path $PWD 'v2.1.0.patch.gz'))
+          [IO.File]::WriteAllBytes((Join-Path $PWD 'v2.1.1.patch.gz'), [Convert]::FromBase64String($patchB64))
+          $input = [IO.File]::OpenRead((Join-Path $PWD 'v2.1.1.patch.gz'))
           $gzip = New-Object IO.Compression.GZipStream($input, [IO.Compression.CompressionMode]::Decompress)
-          $output = [IO.File]::Create((Join-Path $PWD 'v2.1.0.patch'))
+          $output = [IO.File]::Create((Join-Path $PWD 'v2.1.1.patch'))
           $gzip.CopyTo($output)
           $output.Dispose(); $gzip.Dispose(); $input.Dispose()
-          git apply --directory=buildsrc v2.1.0.patch
-          if ((Get-Content buildsrc/VERSION -Raw).Trim() -ne '2.1.0') { throw 'Patch did not produce version 2.1.0' }
+          git apply --directory=buildsrc v2.1.1.patch
+          if ((Get-Content buildsrc/VERSION -Raw).Trim() -ne '2.1.1') { throw 'Patch did not produce version 2.1.1' }
 
       - name: Download Go dependencies
         working-directory: buildsrc
