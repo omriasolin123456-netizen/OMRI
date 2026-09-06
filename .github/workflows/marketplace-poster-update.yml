@@ -50,7 +50,7 @@ jobs:
           $output.Dispose()
           $patchText = $patchText.Replace('mpold/', 'buildsrc/').Replace('ownerwork/desktop/', 'buildsrc/')
           [IO.File]::WriteAllText((Join-Path $PWD 'v2.1.1-normalized.patch'), $patchText, (New-Object Text.UTF8Encoding($false)))
-          git apply v2.1.1-normalized.patch
+          git apply -p0 v2.1.1-normalized.patch
           if ((Get-Content buildsrc/VERSION -Raw).Trim() -ne '2.1.1') { throw 'Patch did not produce version 2.1.1' }
 
       - name: Download Go dependencies
