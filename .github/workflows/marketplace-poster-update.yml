@@ -43,10 +43,14 @@ jobs:
           [IO.File]::WriteAllBytes((Join-Path $PWD 'v2.1.1.patch.gz'), [Convert]::FromBase64String($patchB64))
           $input = [IO.File]::OpenRead((Join-Path $PWD 'v2.1.1.patch.gz'))
           $gzip = New-Object IO.Compression.GZipStream($input, [IO.Compression.CompressionMode]::Decompress)
-          $output = [IO.File]::Create((Join-Path $PWD 'v2.1.1.patch'))
+          $output = New-Object IO.MemoryStream
           $gzip.CopyTo($output)
-          $output.Dispose(); $gzip.Dispose(); $input.Dispose()
-          git apply --directory=buildsrc v2.1.1.patch
+          $gzip.Dispose(); $input.Dispose()
+          $patchText = [Text.Encoding]::UTF8.GetString($output.ToArray())
+          $output.Dispose()
+          $patchText = $patchText.Replace('mpold/', 'buildsrc/').Replace('ownerwork/desktop/', 'buildsrc/')
+          [IO.File]::WriteAllText((Join-Path $PWD 'v2.1.1-normalized.patch'), $patchText, (New-Object Text.UTF8Encoding($false)))
+          git apply v2.1.1-normalized.patch
           if ((Get-Content buildsrc/VERSION -Raw).Trim() -ne '2.1.1') { throw 'Patch did not produce version 2.1.1' }
 
       - name: Download Go dependencies
