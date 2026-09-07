@@ -1,6 +1,6 @@
 {
-  "version": "2.2.0",
+  "version": "2.3.0",
   "download_url": "https://raw.githubusercontent.com/omriasolin123456-netizen/OMRI/marketplace-poster-updates/release/MarketplacePoster.exe",
-  "sha256": "9b4eabe69ef9e352cf75d72a3541a8c09de389e12e604bbc0443f923dad0640d",
-  "notes": "Marketplace Poster 2.2.0\r\n- AI מקומי מובנה: Qwen3 1.7B דרך llama.cpp ללא API.\r\n- הפעלה אוטומטית של llama-server לפי דרישה.\r\n- יצירת כותרות, תגיות, שכתוב, קיצור, תיקון כתיב ו-5 וריאציות מקומיות.\r\n- מסך סטטוס AI בהגדרות עם בדיקה והפעלה.\r\n- Gemini נשאר כ-Fallback אופציונלי בלבד.\r\n- Owner ממשיך ללא תפוגה וללא מגבלות.\r\n- התקנת All-in-One מורידה ומאמתת את האפליקציה, מנוע AI והמודל."
+  "sha256": "5574f67e9e266ee3782f1a280d7fe3faefe9e59256be314e668d4486820dcaaa",
+  "notes": "Marketplace Poster 2.3.0\r\n- Creative Engine חדש עם עברית בלבד כברירת מחדל.\r\n- שדרוג ברירת המחדל ל-Qwen3 4B Q4_K_M לכתיבה איכותית יותר בעברית.\r\n- שלושה מצבי יצירתיות: שמרני / מאוזן / יצירתי.\r\n- יצירת וריאציה חדשה אוטומטית לכל פרסום, תוך שמירה על עובדות ומספרים.\r\n- זיהוי תוצאה שאינה בעברית וחזרה בטוחה לטקסט המקורי במקרה כשל.\r\n- רנדומייז תמונות: סדר, Cover וכמות תמונות מתוך הסט בכל פרסום.\r\n- הגדרות נפרדות לכמות וריאציות ולמינימום תמונות.\r\n- אין שינוי או יצירה של עובדות שלא קיימות במקור."
 }
