@@ -1,6 +1,6 @@
 {
-  "version": "2.1.1",
+  "version": "2.2.0",
   "download_url": "https://raw.githubusercontent.com/omriasolin123456-netizen/OMRI/marketplace-poster-updates/release/MarketplacePoster.exe",
-  "sha256": "4e5fb04ce9dd4fc0d069599631ef9ebebbd197373fabfe5b8630cf69fcd89b28",
-  "notes": "Marketplace Poster 2.1.1\r\n- הוספת Owner License אמיתי ללא תפוגה.\r\n- Owner ללא מגבלת מכשירים, חשבונות Facebook או פעולות פרסום.\r\n- תצוגת ∞ בממשק במקום 0 עבור מגבלות ללא הגבלה.\r\n- Grace ארוך ל-Owner לאחר הפעלה ראשונה."
+  "sha256": "9b4eabe69ef9e352cf75d72a3541a8c09de389e12e604bbc0443f923dad0640d",
+  "notes": "Marketplace Poster 2.2.0\r\n- AI מקומי מובנה: Qwen3 1.7B דרך llama.cpp ללא API.\r\n- הפעלה אוטומטית של llama-server לפי דרישה.\r\n- יצירת כותרות, תגיות, שכתוב, קיצור, תיקון כתיב ו-5 וריאציות מקומיות.\r\n- מסך סטטוס AI בהגדרות עם בדיקה והפעלה.\r\n- Gemini נשאר כ-Fallback אופציונלי בלבד.\r\n- Owner ממשיך ללא תפוגה וללא מגבלות.\r\n- התקנת All-in-One מורידה ומאמתת את האפליקציה, מנוע AI והמודל."
 }
