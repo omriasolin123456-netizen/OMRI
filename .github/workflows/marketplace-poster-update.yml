@@ -37,10 +37,10 @@ jobs:
       - name: Apply 2.2.0 local AI patch
         shell: pwsh
         run: |
-          $patchParts = Get-ChildItem 'marketplace-poster/patches/v2.2.0-part*.b64' | Sort-Object Name
-          if ($patchParts.Count -lt 3) { throw '2.2.0 patch chunks are missing' }
-          $patchB64 = ($patchParts | ForEach-Object { Get-Content $_.FullName -Raw }) -join ''
-          [IO.File]::WriteAllBytes((Join-Path $PWD 'v2.2.0.patch.gz'), [Convert]::FromBase64String($patchB64))
+          $parts = Get-ChildItem 'marketplace-poster/patches/v2.2.0-part*.b64' | Sort-Object Name
+          if ($parts.Count -lt 3) { throw '2.2.0 patch chunks are missing' }
+          $b64 = ($parts | ForEach-Object { Get-Content $_.FullName -Raw }) -join ''
+          [IO.File]::WriteAllBytes((Join-Path $PWD 'v2.2.0.patch.gz'), [Convert]::FromBase64String($b64))
           $input = [IO.File]::OpenRead((Join-Path $PWD 'v2.2.0.patch.gz'))
           $gzip = New-Object IO.Compression.GZipStream($input, [IO.Compression.CompressionMode]::Decompress)
           $output = [IO.File]::Create((Join-Path $PWD 'v2.2.0.patch'))
@@ -48,6 +48,23 @@ jobs:
           $output.Dispose(); $gzip.Dispose(); $input.Dispose()
           git apply --directory=buildsrc v2.2.0.patch
           if ((Get-Content buildsrc/VERSION -Raw).Trim() -ne '2.2.0') { throw 'Patch did not produce version 2.2.0' }
+
+      - name: Apply 2.3.0 Creative Engine patch
+        shell: pwsh
+        run: |
+          $parts = Get-ChildItem 'marketplace-poster/patches/v2.3.0-part*.b64' | Sort-Object Name
+          if ($parts.Count -lt 2) { throw '2.3.0 patch chunks are missing' }
+          $b64 = ($parts | ForEach-Object { Get-Content $_.FullName -Raw }) -join ''
+          [IO.File]::WriteAllBytes((Join-Path $PWD 'v2.3.0.patch.gz'), [Convert]::FromBase64String($b64))
+          $input = [IO.File]::OpenRead((Join-Path $PWD 'v2.3.0.patch.gz'))
+          $gzip = New-Object IO.Compression.GZipStream($input, [IO.Compression.CompressionMode]::Decompress)
+          $output = [IO.File]::Create((Join-Path $PWD 'v2.3.0.patch'))
+          $gzip.CopyTo($output)
+          $output.Dispose(); $gzip.Dispose(); $input.Dispose()
+          Push-Location buildsrc
+          git apply ../v2.3.0.patch
+          Pop-Location
+          if ((Get-Content buildsrc/VERSION -Raw).Trim() -ne '2.3.0') { throw 'Patch did not produce version 2.3.0' }
 
       - name: Download Go dependencies
         working-directory: buildsrc
