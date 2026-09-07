@@ -61,9 +61,7 @@ jobs:
           $output = [IO.File]::Create((Join-Path $PWD 'v2.3.0.patch'))
           $gzip.CopyTo($output)
           $output.Dispose(); $gzip.Dispose(); $input.Dispose()
-          Push-Location buildsrc
-          git apply ../v2.3.0.patch
-          Pop-Location
+          git apply --directory=buildsrc v2.3.0.patch
           if ((Get-Content buildsrc/VERSION -Raw).Trim() -ne '2.3.0') { throw 'Patch did not produce version 2.3.0' }
 
       - name: Download Go dependencies
