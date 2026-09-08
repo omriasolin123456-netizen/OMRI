@@ -3,155 +3,131 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="הורדת Marketplace Poster 2.5.1 ל-Windows">
-  <title>Marketplace Poster 2.5.1</title>
-  <style>
-    :root {
-      color-scheme: dark;
-      --bg: #07111f;
-      --panel: rgba(16, 30, 49, .88);
-      --line: rgba(148, 163, 184, .2);
-      --text: #f8fafc;
-      --muted: #a8b3c4;
-      --brand: #55d6be;
-      --brand-dark: #082f2b;
-      --accent: #7dd3fc;
-    }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      min-height: 100vh;
-      font-family: Arial, "Segoe UI", sans-serif;
-      color: var(--text);
-      background:
-        radial-gradient(circle at 15% 5%, rgba(14, 165, 233, .17), transparent 34rem),
-        radial-gradient(circle at 85% 90%, rgba(45, 212, 191, .14), transparent 30rem),
-        var(--bg);
-    }
-    main { width: min(1050px, calc(100% - 32px)); margin: 0 auto; padding: 64px 0 48px; }
-    .hero { text-align: center; padding: 28px 16px 44px; }
-    .badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 8px 13px;
-      color: var(--brand);
-      border: 1px solid rgba(85, 214, 190, .34);
-      border-radius: 999px;
-      background: rgba(8, 47, 43, .55);
-      font-weight: 700;
-      font-size: 14px;
-    }
-    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--brand); box-shadow: 0 0 14px var(--brand); }
-    h1 { margin: 22px 0 12px; font-size: clamp(38px, 7vw, 68px); letter-spacing: -2px; }
-    .lead { max-width: 720px; margin: 0 auto; color: var(--muted); font-size: clamp(18px, 2.5vw, 22px); line-height: 1.65; }
-    .actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin-top: 30px; }
-    .button {
-      display: inline-flex;
-      justify-content: center;
-      align-items: center;
-      min-height: 50px;
-      padding: 0 23px;
-      border-radius: 13px;
-      border: 1px solid var(--line);
-      color: var(--text);
-      background: rgba(15, 23, 42, .72);
-      text-decoration: none;
-      font-weight: 700;
-      transition: transform .16s ease, border-color .16s ease;
-    }
-    .button:hover { transform: translateY(-2px); border-color: var(--accent); }
-    .button.primary { color: #04211e; background: var(--brand); border-color: var(--brand); }
-    .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
-    .card {
-      border: 1px solid var(--line);
-      border-radius: 18px;
-      background: var(--panel);
-      padding: 22px;
-      box-shadow: 0 18px 55px rgba(0, 0, 0, .2);
-    }
-    .card h2 { margin: 0 0 11px; font-size: 19px; }
-    .card p, .card li { color: var(--muted); line-height: 1.65; }
-    .card ul { margin: 0; padding-right: 20px; }
-    .wide { grid-column: 1 / -1; }
-    .downloads { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-top: 16px; }
-    .download {
-      display: block;
-      padding: 16px;
-      border: 1px solid var(--line);
-      border-radius: 13px;
-      color: var(--text);
-      text-decoration: none;
-      background: rgba(2, 8, 23, .34);
-    }
-    .download:hover { border-color: var(--accent); }
-    .download small { display: block; margin-top: 5px; color: var(--muted); }
-    details { margin-top: 16px; }
-    summary { cursor: pointer; color: var(--accent); }
-    code { direction: ltr; display: block; margin-top: 10px; overflow-wrap: anywhere; color: #cbd5e1; font-size: 12px; }
-    footer { text-align: center; color: #708096; padding-top: 28px; font-size: 13px; }
-    @media (max-width: 760px) {
-      main { padding-top: 34px; }
-      .grid, .downloads { grid-template-columns: 1fr; }
-      .button { width: 100%; }
-    }
-  </style>
+  <meta name="theme-color" content="#07101d">
+  <meta name="description" content="Marketplace Poster — יצירה, ניהול ופרסום מודעות Marketplace ממקום אחד. ניסיון חינם ל-7 ימים.">
+  <title>Marketplace Poster — יותר מודעות, פחות עבודה ידנית</title>
+  <link rel="stylesheet" href="styles.css">
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Marketplace Poster","operatingSystem":"Windows","applicationCategory":"BusinessApplication","softwareVersion":"2.5.1","description":"תוכנה ליצירה, ניהול ופרסום מודעות Marketplace עם כלי Smart AI אופציונליים.","offers":{"@type":"AggregateOffer","lowPrice":"49","highPrice":"149","priceCurrency":"ILS"}}</script>
 </head>
 <body>
-  <main>
+  <div class="announcement">7 ימי ניסיון חינם · התקנה תוך דקות · Smart AI הוא תוסף אופציונלי</div>
+  <header>
+    <nav class="container" aria-label="ניווט ראשי">
+      <a class="brand" href="#top"><span class="mark">MP</span><span>Marketplace Poster</span></a>
+      <div class="navlinks">
+        <a href="#how">איך זה עובד</a><a href="#demo">יכולות</a><a href="#calculator">כמה זמן חוסכים</a><a href="#pricing">מחירים</a><a href="#faq">שאלות</a>
+      </div>
+      <a class="button small primary" href="#download">הורדה חינם</a>
+    </nav>
+  </header>
+
+  <main id="top">
     <section class="hero">
-      <div class="badge"><span class="dot"></span> גרסה 2.5.1 זמינה</div>
-      <h1>Marketplace Poster</h1>
-      <p class="lead">ניהול ויצירת מודעות Marketplace בממשק מסודר, עם Smart AI אופציונלי שאפשר להתקין מתוך התוכנה כשנוח לך.</p>
-      <div class="actions">
-        <a class="button primary" href="https://raw.githubusercontent.com/omriasolin123456-netizen/OMRI/marketplace-poster-updates/release/MarketplacePoster-Setup.exe">הורדת מתקין Windows</a>
-        <a class="button" href="https://raw.githubusercontent.com/omriasolin123456-netizen/OMRI/marketplace-poster-updates/release/MarketplacePoster.exe">הורדת EXE נייד</a>
+      <div class="container hero-grid">
+        <div class="hero-copy">
+          <div class="eyebrow">Marketplace Poster 2.5.1 ל-Windows</div>
+          <h1>מעלים יותר מודעות.<br><span>מבזבזים פחות זמן.</span></h1>
+          <p>יוצרים מודעה פעם אחת, מסדרים תמונות וגרסאות טקסט, מנהלים תור פרסום ועוקבים אחרי הכול ממסך אחד — עם Smart AI כשצריך.</p>
+          <div class="hero-actions">
+            <a class="button primary" href="https://raw.githubusercontent.com/omriasolin123456-netizen/OMRI/marketplace-poster-updates/release/MarketplacePoster-Setup.exe">הורדה וניסיון ל-7 ימים</a>
+            <a class="button" href="#demo">צפו בדוגמה</a>
+          </div>
+          <div class="trustline"><span>בלי כרטיס אשראי לניסיון</span><span>הנתונים נשמרים במחשב</span><span>אפשר להסיר בכל רגע</span></div>
+        </div>
+
+        <div class="product-shell" aria-label="הדגמת מסך הניהול של Marketplace Poster">
+          <div class="windowbar"><i></i><i></i><i></i></div>
+          <div class="app">
+            <aside class="sidebar">
+              <div class="mini-brand">Marketplace Poster</div>
+              <div class="side-item active">לוח בקרה</div><div class="side-item">יצירת מודעה</div><div class="side-item">המודעות שלי</div><div class="side-item">תור פרסום</div><div class="side-item">היסטוריה</div><div class="side-item">הגדרות</div>
+            </aside>
+            <div class="workspace">
+              <div class="workspace-head"><strong>שלום, הנה מצב העבודה</strong><span class="new-ad">+ מודעה חדשה</span></div>
+              <div class="stats"><div class="mini-stat"><span>מודעות פעילות</span><strong>24</strong></div><div class="mini-stat"><span>פורסמו היום</span><strong>12</strong></div><div class="mini-stat"><span>בתור</span><strong>8</strong></div></div>
+              <div class="queue">
+                <div class="queue-title"><b>תור הפרסום</b><span>פעיל עכשיו</span></div>
+                <div class="ad-row"><span class="ad-thumb"></span><span><b>שולחן סלון מעוצב</b><small>4 תמונות · 3 קבוצות</small></span><span class="state">פורסם</span></div>
+                <div class="ad-row"><span class="ad-thumb"></span><span><b>כיסא משרדי ארגונומי</b><small>6 תמונות · Marketplace</small></span><span class="state">ממתין</span></div>
+                <div class="ad-row"><span class="ad-thumb"></span><span><b>שידת כניסה חדשה</b><small>5 תמונות · 2 גרסאות טקסט</small></span><span class="state">מוכן</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </section>
 
-    <section class="grid" aria-label="פרטי הגרסה">
-      <article class="card">
-        <h2>התקנה מהירה</h2>
-        <p>המתקין מתקין מיד את תוכנת הליבה. Smart AI הוא שדרוג אופציונלי ואינו מעכב את הכניסה לתוכנה.</p>
-      </article>
-      <article class="card">
-        <h2>שדרוג בטוח</h2>
-        <p>התקנה קיימת מזוהה ומעודכנת, תוך שמירה על מודעות, הגדרות ונתוני המשתמש.</p>
-      </article>
-      <article class="card">
-        <h2>ממשק ברור יותר</h2>
-        <p>גרסאות טקסט בשפה פשוטה, הגדרות לפי קטגוריות, ויכולת למנוע מתמונה לשמש כתמונה ראשית.</p>
-      </article>
+    <section class="proof-strip" aria-label="יתרונות מרכזיים"><div class="container proof-grid">
+      <div class="proof"><strong>7 ימים</strong><span>ניסיון חינם</span></div><div class="proof"><strong>עד 10</strong><span>תמונות בכל מודעה</span></div><div class="proof"><strong>3–6 שעות</strong><span>חיסכון שבועי משוער*</span></div><div class="proof"><strong>מקום אחד</strong><span>מודעות, תור והיסטוריה</span></div>
+    </div></section>
 
-      <article class="card wide">
-        <h2>כל קובצי הגרסה</h2>
-        <div class="downloads">
-          <a class="download" href="https://raw.githubusercontent.com/omriasolin123456-netizen/OMRI/marketplace-poster-updates/release/MarketplacePoster-Setup.exe">
-            MarketplacePoster-Setup.exe
-            <small>מומלץ — מתקין מלא ושדרוג לגרסה קיימת</small>
-          </a>
-          <a class="download" href="https://raw.githubusercontent.com/omriasolin123456-netizen/OMRI/marketplace-poster-updates/release/MarketplacePoster.exe">
-            MarketplacePoster.exe
-            <small>קובץ התוכנה ללא Wizard</small>
-          </a>
-          <a class="download" href="https://raw.githubusercontent.com/omriasolin123456-netizen/OMRI/marketplace-poster-updates/release/MarketplacePoster-source-v2.5.1.zip">
-            קוד המקור 2.5.1
-            <small>ZIP של המקור ששימש לבנייה</small>
-          </a>
-          <a class="download" href="https://raw.githubusercontent.com/omriasolin123456-netizen/OMRI/marketplace-poster-updates/release/manifest.json">
-            manifest.json
-            <small>גרסה, כתובות הורדה וחתימות SHA-256</small>
-          </a>
-        </div>
-        <details>
-          <summary>הצגת SHA-256</summary>
-          <code>Setup: 6040398d7ebd7504676f49f3fa25b382ce662e4e5fa9be885acbbe19ce2e8393</code>
-          <code>EXE: 2e24c96b311aabff644da324b53b9df041c6a511055f51b4527f173255a1fa0c</code>
-          <code>Source: 7d7fdda2a6c1b6c23c9a43009915383c23fd0b78555b94c8b77419f578b80431</code>
-        </details>
-      </article>
-    </section>
-    <footer>Marketplace Poster 2.5.1 · Windows</footer>
+    <section class="section alt" id="how"><div class="container">
+      <div class="section-head"><div class="kicker">מהמודעה הראשונה ועד הפרסום</div><h2>שלוש פעולות במקום עשרות צעדים חוזרים</h2><p>התוכנה מרכזת את העבודה השחורה, ומשאירה אצלכם את ההחלטות החשובות: מה מפרסמים, איפה ומתי.</p></div>
+      <div class="steps">
+        <article class="card step"><div class="step-num">1</div><h3>מכינים או מייבאים</h3><p>מוסיפים מוצר, מחיר ותמונות — או מייבאים רשימה שלמה מקובץ CSV או מתיקיית מוצרים.</p></article>
+        <article class="card step"><div class="step-num">2</div><h3>משפרים ומגוונים</h3><p>יוצרים גרסאות טקסט ברורות, מסמנים אילו תמונות לא יהיו ראשיות, ומשתמשים ב-Smart AI לפי הצורך.</p></article>
+        <article class="card step"><div class="step-num">3</div><h3>בודקים ומפרסמים</h3><p>מפעילים Preview, בוחרים חשבון וקבוצות שאושרו במפורש, ומנהלים את התור עם היסטוריה מלאה.</p></article>
+      </div>
+    </div></section>
+
+    <section class="section" id="demo"><div class="container">
+      <div class="section-head"><div class="kicker">דוגמאות מתוך סביבת העבודה</div><h2>כל מה שצריך כדי לעבוד מסודר</h2><p>לא עוד תיקיות, העתק-הדבק וטאבים פתוחים. בחרו אזור כדי לראות איך הוא עוזר ביום-יום.</p></div>
+      <div class="card demo">
+        <div class="tabs" role="tablist" aria-label="דוגמאות יכולות"><button class="tab" role="tab" aria-selected="true" data-panel="create">יצירת מודעה</button><button class="tab" role="tab" aria-selected="false" data-panel="ai">Smart AI</button><button class="tab" role="tab" aria-selected="false" data-panel="queue">תור ובקרה</button><button class="tab" role="tab" aria-selected="false" data-panel="backup">ייבוא וגיבוי</button></div>
+        <div class="demo-panel active" id="panel-create"><div><h3>מודעה אחת, כל הפרטים במקום אחד</h3><p>שומרים את הטקסט, המחיר, הקטגוריה, התמונות והקבוצות בתוך כרטיס מוצר מסודר.</p><ul class="checklist"><li>גרירת תמונות ושינוי הסדר</li><li>סימון “לא כתמונה ראשית”</li><li>גרסאות טקסט ידניות או אוטומטיות</li></ul></div><div class="fake-form"><div class="fake-label">כותרת<div class="fake-input">שולחן סלון מודרני מעץ מלא</div></div><div class="fake-label">תיאור<div class="fake-input">שולחן חדש בעיצוב נקי, מתאים לסלון ולמשרד...</div></div><div class="fake-ai"><span>שפר מודעה</span><span>הצע כותרות</span><span>תקן כתיב</span></div></div></div>
+        <div class="demo-panel" id="panel-ai"><div><h3>AI שעוזר — ולא עוצר את התוכנה</h3><p>Smart AI מותקן בנפרד ורץ מקומית. אפשר להתחיל לעבוד מיד ולהוסיף אותו מאוחר יותר.</p><ul class="checklist"><li>שיפור תיאור בלי לשנות עובדות</li><li>הצעות לכותרות ותגיות</li><li>Repair AI מתוך ההגדרות</li></ul></div><div class="fake-form"><div class="fake-label">הטקסט המקורי<div class="fake-input">שידה חדשה במצב מעולה, איסוף מנתניה</div></div><div class="fake-label">הצעה משופרת<div class="fake-input">שידה חדשה ושמורה בעיצוב נקי — זמינה לאיסוף מנתניה</div></div><div class="fake-ai"><span>שינויים קלים</span><span>שכתוב יצירתי</span><span>3 גרסאות</span></div></div></div>
+        <div class="demo-panel" id="panel-queue"><div><h3>יודעים מה פורסם ומה מחכה</h3><p>תור הפרסום שומר נקודת המשך, עוצר במקרה של שגיאה ומאפשר לבדוק כל מודעה במצב Preview.</p><ul class="checklist"><li>מרווחי זמן מוגדרים מראש</li><li>נסה שוב, דלג או עצור</li><li>היסטוריה וצילום מסך של תקלה</li></ul></div><div class="fake-form"><div class="queue-title"><b>סשן פרסום</b><span>3 מתוך 12</span></div><div class="ad-row"><span class="ad-thumb"></span><span><b>מודעה 1</b><small>הושלם בהצלחה</small></span><span class="state">פורסם</span></div><div class="ad-row"><span class="ad-thumb"></span><span><b>מודעה 2</b><small>בדיקה לפני פרסום</small></span><span class="state">Preview</span></div><div class="ad-row"><span class="ad-thumb"></span><span><b>מודעה 3</b><small>ממתין בתור</small></span><span class="state">ממתין</span></div></div></div>
+        <div class="demo-panel" id="panel-backup"><div><h3>גם עשרות מוצרים נכנסים בבת אחת</h3><p>מייבאים CSV או תיקיית מוצרים, ועושים גיבוי מלא של המודעות, התמונות וההגדרות.</p><ul class="checklist"><li>ייבוא וייצוא Excel/CSV</li><li>גיבוי ZIP ושחזור</li><li>כל הנתונים נשארים במחשב</li></ul></div><div class="fake-form"><div class="fake-label">ייבוא מוצרים<div class="fake-input">products-september.csv · 48 מוצרים</div></div><div class="fake-label">סטטוס<div class="fake-input">48 נקלטו · 6 ממתינים לתמונות</div></div><div class="fake-ai"><span>ייבוא CSV</span><span>צור גיבוי</span><span>שחזר גיבוי</span></div></div></div>
+      </div>
+    </div></section>
+
+    <section class="section alt" id="calculator"><div class="container">
+      <div class="section-head"><div class="kicker">מחשבון השפעה</div><h2>בדקו מה זה יכול לחסוך לעסק שלכם</h2><p>שנו את הנתונים לפי צורת העבודה שלכם וקבלו הערכה שקופה — בלי מספרים מומצאים ובלי הבטחת מכירות.</p></div>
+      <div class="calculator-grid">
+        <article class="card calculator"><h3>כמה זמן נחסך?</h3>
+          <div class="field"><div class="field-row"><label for="posts">פעולות פרסום בשבוע</label><output id="postsOut">70</output></div><input id="posts" type="range" min="5" max="200" step="5" value="70"></div>
+          <div class="field"><div class="field-row"><label for="manual">דקות לפעולה ידנית</label><output id="manualOut">5</output></div><input id="manual" type="range" min="2" max="12" value="5"></div>
+          <div class="field"><div class="field-row"><label for="setup">זמן הכנה שבועי בתוכנה</label><output id="setupOut">45 דקות</output></div><input id="setup" type="range" min="15" max="180" step="5" value="45"></div>
+          <div class="result-box"><div class="result"><strong id="weekSaved">5.1 שעות</strong><span>חיסכון משוער בשבוע</span></div><div class="result"><strong id="monthSaved">20.3 שעות</strong><span>חיסכון משוער בחודש</span></div></div>
+          <p class="note">* החישוב משווה עבודה ידנית לזמן הכנה מרוכז בתוכנה. התוצאה משתנה לפי מספר המודעות, הקבוצות ומהירות העבודה שלכם.</p>
+        </article>
+        <article class="card sales-card"><h3>ומה לגבי מכירות?</h3><p>אין תוכנה שיכולה להבטיח אחוז מכירות קבוע. Marketplace Poster יכול לעזור להגדיל עקביות וכמות מודעות פעילות — ואת הפוטנציאל אפשר להעריך כך:</p>
+          <div class="sales-form"><div class="number-field"><label for="leads">פניות חודשיות כיום</label><input id="leads" type="number" min="0" value="20"></div><div class="number-field"><label for="exposure">הגדלת כמות מודעות פעילות (%)</label><input id="exposure" type="number" min="0" max="300" value="40"></div></div>
+          <div class="sales-output"><span>אם שיעור הפניות נשאר זהה:</span><br><strong id="leadResult">כ-28 פניות</strong><span> בחודש</span></div>
+          <p class="note">זוהי המחשה מתמטית בלבד, לא תחזית. מכירות בפועל תלויות במוצר, במחיר, בתמונות, בביקוש, בתחרות ובביצועי המודעה.</p>
+        </article>
+      </div>
+    </div></section>
+
+    <section class="section" id="pricing"><div class="container">
+      <div class="pricing-top"><div class="section-head compact"><div class="kicker">מחירי השקה</div><h2>חבילה שמתאימה לקצב שלכם</h2><p>מתחילים עם 7 ימים חינם. במסלול שנתי מקבלים חודשיים במתנה לעומת תשלום חודשי.</p></div><div class="billing-toggle" aria-label="בחירת תקופת חיוב"><button class="active" data-billing="monthly">חודשי</button><button data-billing="annual">שנתי · חיסכון</button></div></div>
+      <div class="pricing">
+        <article class="card price-card"><div class="plan-name"><h3>Solo</h3><span>למוכר יחיד</span></div><div class="price"><strong data-monthly="49" data-annual="41">₪49</strong> <span>/ לחודש</span></div><div class="annual-detail" data-annual-copy="₪490 לשנה · חיסכון ₪98"></div><p class="plan-desc">למי שמפרסם באופן קבוע ורוצה להפסיק לעבוד עם העתק-הדבק.</p><ul class="features"><li>חשבון Facebook אחד</li><li>עד 150 פעולות פרסום בחודש</li><li>ניהול מודעות, תור והיסטוריה</li><li>גרסאות טקסט וייבוא CSV</li><li>גיבוי ושחזור</li></ul><a class="button" href="#download">התחילו 7 ימים חינם</a></article>
+        <article class="card price-card featured"><div class="popular">הכי משתלם</div><div class="plan-name"><h3>Pro</h3><span>לעסק פעיל</span></div><div class="price"><strong data-monthly="89" data-annual="74">₪89</strong> <span>/ לחודש</span></div><div class="annual-detail" data-annual-copy="₪890 לשנה · חיסכון ₪178"></div><p class="plan-desc">לעסק עם קטלוג מתחלף שרוצה לייצר יותר מודעות בפחות זמן.</p><ul class="features"><li>עד 3 חשבונות Facebook</li><li>עד 600 פעולות פרסום בחודש</li><li>כל היכולות של Solo</li><li>Smart AI מקומי</li><li>תבניות ועריכה מרובה</li><li>תמיכה מועדפת</li></ul><a class="button primary" href="#download">התחילו עם Pro</a></article>
+        <article class="card price-card"><div class="plan-name"><h3>Business</h3><span>לצוותים וקטלוגים</span></div><div class="price"><strong data-monthly="149" data-annual="124">₪149</strong> <span>/ לחודש</span></div><div class="annual-detail" data-annual-copy="₪1,490 לשנה · חיסכון ₪298"></div><p class="plan-desc">למי שמנהל כמה חשבונות, הרבה מוצרים ותהליך פרסום רחב.</p><ul class="features"><li>עד 10 חשבונות Facebook</li><li>עד 2,000 פעולות פרסום בחודש</li><li>כל היכולות של Pro</li><li>ייבוא קטלוגים גדולים</li><li>תמיכה בעדיפות גבוהה</li><li>העברת רישיון בין מחשבים</li></ul><a class="button" href="#download">התחילו עם Business</a></article>
+      </div>
+      <p class="trial-line">אין חיוב אוטומטי בסיום הניסיון. בחירת חבילה והפעלת רישיון מתבצעות לאחר ההתקנה.</p>
+    </div></section>
+
+    <section class="section alt" id="faq"><div class="container faq">
+      <div><div class="kicker">שאלות נפוצות</div><h2>לפני שמתחילים</h2><p class="muted">התוכנה מיועדת ל-Windows ופועלת מקומית. מומלץ להתחיל במצב Preview ולבדוק מודעה אחת.</p></div>
+      <div class="faq-list">
+        <details><summary>האם Smart AI חובה?</summary><p>לא. כל ניהול המודעות, התמונות, התור והגיבויים עובד גם בלעדיו. אפשר להתקין את Smart AI מאוחר יותר מתוך ההגדרות.</p></details>
+        <details><summary>האם הנתונים שלי עולים לענן?</summary><p>המודעות, התמונות וההגדרות נשמרות במחשב. שרת הרישוי מקבל רק את המידע הדרוש לאימות הרישיון והמכשיר.</p></details>
+        <details><summary>אפשר לבדוק לפני שקונים?</summary><p>כן. לאחר ההתקנה אפשר להפעיל ניסיון חינם ל-7 ימים מתוך מסך הרישיון.</p></details>
+        <details><summary>האם התוכנה מבטיחה יותר מכירות?</summary><p>לא. היא חוסכת עבודה ידנית ועוזרת לפרסם בצורה עקבית ומסודרת. תוצאות המכירה עצמן תלויות במוצר, במחיר, בתמונות ובביקוש.</p></details>
+        <details><summary>מה קורה כשיש עדכון?</summary><p>התוכנה בודקת עדכונים, מאמתת חתימת SHA-256 ושומרת את המודעות וההגדרות גם בעת שדרוג.</p></details>
+        <details><summary>צריך למחוק גרסה קודמת?</summary><p>לא. המתקין מזהה התקנה קיימת, סוגר תהליכים קשורים ומשדרג את הקבצים תוך שמירה על נתוני המשתמש.</p></details>
+      </div>
+    </div></section>
+
+    <section class="section" id="download"><div class="container">
+      <div class="download-panel"><div><div class="kicker">מוכנים להתחיל?</div><h2>הורידו והפעילו ניסיון חינם</h2><p>גרסה 2.5.1 ל-Windows. מתקינים את תוכנת הליבה תוך דקות ומחליטים אחר כך אם להוסיף Smart AI.</p></div><div class="download-actions"><a class="button primary" href="https://raw.githubusercontent.com/omriasolin123456-netizen/OMRI/marketplace-poster-updates/release/MarketplacePoster-Setup.exe">הורדת המתקין</a><a class="button" href="https://raw.githubusercontent.com/omriasolin123456-netizen/OMRI/marketplace-poster-updates/release/MarketplacePoster.exe">EXE ללא Wizard</a></div></div>
+      <details class="release-files"><summary>קובצי גרסה ובדיקת תקינות</summary><div class="file-links"><a href="https://raw.githubusercontent.com/omriasolin123456-netizen/OMRI/marketplace-poster-updates/release/MarketplacePoster-source-v2.5.1.zip">קוד המקור 2.5.1</a><a href="https://raw.githubusercontent.com/omriasolin123456-netizen/OMRI/marketplace-poster-updates/release/manifest.json">manifest.json</a><a href="https://github.com/omriasolin123456-netizen/OMRI/tree/marketplace-poster-updates">GitHub</a></div><code class="hash">Setup SHA-256: 6040398d7ebd7504676f49f3fa25b382ce662e4e5fa9be885acbbe19ce2e8393</code></details>
+    </div></section>
   </main>
+
+  <footer><div class="container footer-row"><span>© 2026 Marketplace Poster</span><span>גרסה 2.5.1 · Windows · הנתונים נשמרים במחשב</span></div></footer>
+  <script src="app.js"></script>
 </body>
 </html>
