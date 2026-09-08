@@ -52,7 +52,7 @@ Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -Win
 Filename: "{app}\{#MyAppExeName}"; Description: "Launch Marketplace Poster"; WorkingDir: "{app}"; Flags: nowait postinstall skipifsilent runasoriginaluser
 
 [UninstallRun]
-Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command ""Remove-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers' -Name '{app}\{#MyAppExeName}' -ErrorAction SilentlyContinue"""; Flags: runhidden runasoriginaluser
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command ""Remove-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers' -Name '{app}\{#MyAppExeName}' -ErrorAction SilentlyContinue"""; Flags: runhidden
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}\installer"
