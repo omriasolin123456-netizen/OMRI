@@ -37,18 +37,25 @@ jobs:
         run: |
           $version = (Get-Content VERSION -Raw).Trim()
           if ($version -ne '2.5.1') { throw "Expected version 2.5.1, found $version" }
-          gofmt -w *.go automation/*.go
+          $goFiles = @((Get-ChildItem -File *.go).FullName) + @((Get-ChildItem -File automation/*.go).FullName)
+          gofmt -w $goFiles
+          if ($LASTEXITCODE -ne 0) { throw 'gofmt failed' }
           go mod tidy
+          if ($LASTEXITCODE -ne 0) { throw 'go mod tidy failed' }
           go test ./...
+          if ($LASTEXITCODE -ne 0) { throw 'go test failed' }
           node --check web/app.js
+          if ($LASTEXITCODE -ne 0) { throw 'JavaScript syntax check failed' }
 
       - name: Embed Windows icon and manifest
         shell: pwsh
         working-directory: marketplace-poster/app
         run: |
           go install github.com/akavel/rsrc@latest
+          if ($LASTEXITCODE -ne 0) { throw 'rsrc installation failed' }
           $rsrc = Join-Path (go env GOPATH) 'bin/rsrc.exe'
           & $rsrc -ico 'installer/MarketplacePoster.ico' -manifest 'installer/app.manifest' -o marketplaceposter.syso
+          if ($LASTEXITCODE -ne 0) { throw 'resource embedding failed' }
 
       - name: Build Windows application
         shell: pwsh
@@ -56,6 +63,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force ../../release,dist | Out-Null
           go build -trimpath -ldflags '-H=windowsgui -s -w' -o ../../release/MarketplacePoster.exe .
+          if ($LASTEXITCODE -ne 0) { throw 'Windows application build failed' }
           Copy-Item ../../release/MarketplacePoster.exe dist/MarketplacePoster.exe -Force
 
       - name: Build Setup Wizard
@@ -67,6 +75,7 @@ jobs:
           $iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
           if (-not (Test-Path $iscc)) { throw 'Inno Setup compiler not found' }
           & $iscc "/DMyAppVersion=$version" 'installer\MarketplacePoster.iss'
+          if ($LASTEXITCODE -ne 0) { throw 'Inno Setup build failed' }
           if (-not (Test-Path 'dist\MarketplacePoster-Setup.exe')) { throw 'Setup EXE was not created' }
           Copy-Item dist/MarketplacePoster-Setup.exe ../../release/MarketplacePoster-Setup.exe -Force
 

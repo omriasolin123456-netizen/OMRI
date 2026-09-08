@@ -79,7 +79,7 @@ func (s *BrowserSession) Connect() (err error) {
 		Devtools(false).
 		UserDataDir(filepath.Clean(s.profileDir)).
 		Set("remote-debugging-address", "127.0.0.1")
-	if bin, lookErr := launcher.LookPath(); lookErr == nil && strings.TrimSpace(bin) != "" {
+	if bin, found := launcher.LookPath(); found && strings.TrimSpace(bin) != "" {
 		launch = launch.Bin(bin)
 	}
 
