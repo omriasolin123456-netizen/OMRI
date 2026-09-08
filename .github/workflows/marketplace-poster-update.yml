@@ -76,6 +76,7 @@ jobs:
           $mini = Get-ChildItem 'marketplace-poster/patches/v2.5.0-mini-part*.b64' | Sort-Object Name
           if ($mini.Count -ne 29) { throw "Expected 29 mini chunks, found $($mini.Count)" }
           $b64 = (($prefix | ForEach-Object { Get-Content $_ -Raw }) + ($mini | ForEach-Object { Get-Content $_.FullName -Raw })) -join ''
+          $b64 = $b64 -replace '[^A-Za-z0-9+/=]', ''
           [IO.File]::WriteAllBytes((Join-Path $PWD 'v2.5.0.patch.gz'), [Convert]::FromBase64String($b64))
           $hash = (Get-FileHash v2.5.0.patch.gz -Algorithm SHA256).Hash.ToLower()
           if ($hash -ne 'fa4987670e02412e1ba3c2fa3627cf6c083bad38025779bfabec00717f90f1ec') { throw "2.5.0 patch checksum mismatch: $hash" }
@@ -91,6 +92,7 @@ jobs:
         shell: pwsh
         run: |
           $b64 = Get-Content 'marketplace-poster/patches/v2.5.1.b64' -Raw
+          $b64 = $b64 -replace '[^A-Za-z0-9+/=]', ''
           [IO.File]::WriteAllBytes((Join-Path $PWD 'v2.5.1.patch.gz'), [Convert]::FromBase64String($b64))
           $hash = (Get-FileHash v2.5.1.patch.gz -Algorithm SHA256).Hash.ToLower()
           if ($hash -ne '67d01d404093eb19527a7056ac6601a66cd21bbd9937715e28edd9c9a788071f') { throw "2.5.1 patch checksum mismatch: $hash" }
