@@ -64,20 +64,43 @@ jobs:
           git apply --directory=buildsrc v2.3.0.patch
           if ((Get-Content buildsrc/VERSION -Raw).Trim() -ne '2.3.0') { throw 'Patch did not produce version 2.3.0' }
 
-      - name: Apply 2.4.0 Admin AI patch
+      - name: Apply 2.5.0 UX patch
         shell: pwsh
         run: |
-          $parts = Get-ChildItem 'marketplace-poster/patches/v2.4.0-part*.b64' | Sort-Object Name
-          if ($parts.Count -lt 1) { throw '2.4.0 patch chunks are missing' }
-          $b64 = ($parts | ForEach-Object { Get-Content $_.FullName -Raw }) -join ''
-          [IO.File]::WriteAllBytes((Join-Path $PWD 'v2.4.0.patch.gz'), [Convert]::FromBase64String($b64))
-          $input = [IO.File]::OpenRead((Join-Path $PWD 'v2.4.0.patch.gz'))
+          $prefix = @(
+            'marketplace-poster/patches/v2.5.0-part00.b64',
+            'marketplace-poster/patches/v2.5.0-part01.b64',
+            'marketplace-poster/patches/v2.5.0-part02.b64'
+          )
+          foreach ($p in $prefix) { if (-not (Test-Path $p)) { throw "Missing $p" } }
+          $mini = Get-ChildItem 'marketplace-poster/patches/v2.5.0-mini-part*.b64' | Sort-Object Name
+          if ($mini.Count -ne 29) { throw "Expected 29 mini chunks, found $($mini.Count)" }
+          $b64 = (($prefix | ForEach-Object { Get-Content $_ -Raw }) + ($mini | ForEach-Object { Get-Content $_.FullName -Raw })) -join ''
+          [IO.File]::WriteAllBytes((Join-Path $PWD 'v2.5.0.patch.gz'), [Convert]::FromBase64String($b64))
+          $hash = (Get-FileHash v2.5.0.patch.gz -Algorithm SHA256).Hash.ToLower()
+          if ($hash -ne 'fa4987670e02412e1ba3c2fa3627cf6c083bad38025779bfabec00717f90f1ec') { throw "2.5.0 patch checksum mismatch: $hash" }
+          $input = [IO.File]::OpenRead((Join-Path $PWD 'v2.5.0.patch.gz'))
           $gzip = New-Object IO.Compression.GZipStream($input, [IO.Compression.CompressionMode]::Decompress)
-          $output = [IO.File]::Create((Join-Path $PWD 'v2.4.0.patch'))
+          $output = [IO.File]::Create((Join-Path $PWD 'v2.5.0.patch'))
           $gzip.CopyTo($output)
           $output.Dispose(); $gzip.Dispose(); $input.Dispose()
-          git apply --directory=buildsrc v2.4.0.patch
-          if ((Get-Content buildsrc/VERSION -Raw).Trim() -ne '2.4.0') { throw 'Patch did not produce version 2.4.0' }
+          git apply --directory=buildsrc v2.5.0.patch
+          if ((Get-Content buildsrc/VERSION -Raw).Trim() -ne '2.5.0') { throw 'Patch did not produce version 2.5.0' }
+
+      - name: Apply 2.5.1 final safety patch
+        shell: pwsh
+        run: |
+          $b64 = Get-Content 'marketplace-poster/patches/v2.5.1.b64' -Raw
+          [IO.File]::WriteAllBytes((Join-Path $PWD 'v2.5.1.patch.gz'), [Convert]::FromBase64String($b64))
+          $hash = (Get-FileHash v2.5.1.patch.gz -Algorithm SHA256).Hash.ToLower()
+          if ($hash -ne '67d01d404093eb19527a7056ac6601a66cd21bbd9937715e28edd9c9a788071f') { throw "2.5.1 patch checksum mismatch: $hash" }
+          $input = [IO.File]::OpenRead((Join-Path $PWD 'v2.5.1.patch.gz'))
+          $gzip = New-Object IO.Compression.GZipStream($input, [IO.Compression.CompressionMode]::Decompress)
+          $output = [IO.File]::Create((Join-Path $PWD 'v2.5.1.patch'))
+          $gzip.CopyTo($output)
+          $output.Dispose(); $gzip.Dispose(); $input.Dispose()
+          git apply --directory=buildsrc v2.5.1.patch
+          if ((Get-Content buildsrc/VERSION -Raw).Trim() -ne '2.5.1') { throw 'Patch did not produce version 2.5.1' }
 
       - name: Download Go dependencies
         working-directory: buildsrc
@@ -87,11 +110,34 @@ jobs:
         working-directory: buildsrc
         run: go test ./...
 
-      - name: Build Windows EXE
+      - name: Embed Windows icon and manifest
+        shell: pwsh
         working-directory: buildsrc
         run: |
+          go install github.com/akavel/rsrc@latest
+          $rsrc = Join-Path (go env GOPATH) 'bin/rsrc.exe'
+          & $rsrc -ico 'installer/MarketplacePoster.ico' -manifest 'installer/app.manifest' -o 'marketplaceposter.syso'
+
+      - name: Build Windows EXE
+        working-directory: buildsrc
+        shell: pwsh
+        run: |
           New-Item -ItemType Directory -Force -Path ../release | Out-Null
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
           go build -trimpath -ldflags "-H=windowsgui -s -w" -o ../release/MarketplacePoster.exe .
+          Copy-Item ../release/MarketplacePoster.exe dist/MarketplacePoster.exe -Force
+
+      - name: Build Setup Wizard
+        shell: pwsh
+        working-directory: buildsrc
+        run: |
+          choco install innosetup -y --no-progress
+          $version = (Get-Content VERSION -Raw).Trim()
+          $iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path $iscc)) { throw 'Inno Setup compiler not found' }
+          & $iscc "/DMyAppVersion=$version" 'installer\MarketplacePoster.iss'
+          if (-not (Test-Path 'dist\MarketplacePoster-Setup.exe')) { throw 'Setup EXE was not created' }
+          Copy-Item 'dist\MarketplacePoster-Setup.exe' '..\release\MarketplacePoster-Setup.exe' -Force
 
       - name: Create update manifest
         shell: pwsh
@@ -99,21 +145,25 @@ jobs:
           $version = (Get-Content buildsrc/VERSION -Raw).Trim()
           $notes = (Get-Content buildsrc/RELEASE_NOTES.txt -Raw).Trim()
           $hash = (Get-FileHash release/MarketplacePoster.exe -Algorithm SHA256).Hash.ToLower()
+          $setupHash = (Get-FileHash release/MarketplacePoster-Setup.exe -Algorithm SHA256).Hash.ToLower()
           $manifest = [ordered]@{
             version = $version
             download_url = 'https://raw.githubusercontent.com/omriasolin123456-netizen/OMRI/marketplace-poster-updates/release/MarketplacePoster.exe'
             sha256 = $hash
+            setup_url = 'https://raw.githubusercontent.com/omriasolin123456-netizen/OMRI/marketplace-poster-updates/release/MarketplacePoster-Setup.exe'
+            setup_sha256 = $setupHash
             notes = $notes
           } | ConvertTo-Json
           [IO.File]::WriteAllText((Join-Path $PWD 'release/manifest.json'), $manifest, (New-Object Text.UTF8Encoding($false)))
           Set-Content release/MarketplacePoster.exe.sha256 "$hash  MarketplacePoster.exe" -Encoding ascii
+          Set-Content release/MarketplacePoster-Setup.exe.sha256 "$setupHash  MarketplacePoster-Setup.exe" -Encoding ascii
 
       - name: Publish update files
         shell: pwsh
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add release/MarketplacePoster.exe release/MarketplacePoster.exe.sha256 release/manifest.json
+          git add release/MarketplacePoster.exe release/MarketplacePoster.exe.sha256 release/MarketplacePoster-Setup.exe release/MarketplacePoster-Setup.exe.sha256 release/manifest.json
           if (-not (git diff --cached --quiet)) {
             $version = (Get-Content buildsrc/VERSION -Raw).Trim()
             git commit -m "Build Marketplace Poster $version [skip ci]"
