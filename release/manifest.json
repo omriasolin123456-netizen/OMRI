@@ -1,6 +1,10 @@
 {
-  "version": "2.3.0",
+  "version": "2.5.1",
   "download_url": "https://raw.githubusercontent.com/omriasolin123456-netizen/OMRI/marketplace-poster-updates/release/MarketplacePoster.exe",
-  "sha256": "5574f67e9e266ee3782f1a280d7fe3faefe9e59256be314e668d4486820dcaaa",
-  "notes": "Marketplace Poster 2.3.0\r\n- Creative Engine חדש עם עברית בלבד כברירת מחדל.\r\n- שדרוג ברירת המחדל ל-Qwen3 4B Q4_K_M לכתיבה איכותית יותר בעברית.\r\n- שלושה מצבי יצירתיות: שמרני / מאוזן / יצירתי.\r\n- יצירת וריאציה חדשה אוטומטית לכל פרסום, תוך שמירה על עובדות ומספרים.\r\n- זיהוי תוצאה שאינה בעברית וחזרה בטוחה לטקסט המקורי במקרה כשל.\r\n- רנדומייז תמונות: סדר, Cover וכמות תמונות מתוך הסט בכל פרסום.\r\n- הגדרות נפרדות לכמות וריאציות ולמינימום תמונות.\r\n- אין שינוי או יצירה של עובדות שלא קיימות במקור."
+  "sha256": "2e24c96b311aabff644da324b53b9df041c6a511055f51b4527f173255a1fa0c",
+  "setup_url": "https://raw.githubusercontent.com/omriasolin123456-netizen/OMRI/marketplace-poster-updates/release/MarketplacePoster-Setup.exe",
+  "setup_sha256": "6040398d7ebd7504676f49f3fa25b382ce662e4e5fa9be885acbbe19ce2e8393",
+  "source_url": "https://raw.githubusercontent.com/omriasolin123456-netizen/OMRI/marketplace-poster-updates/release/MarketplacePoster-source-v2.5.1.zip",
+  "source_sha256": "7d7fdda2a6c1b6c23c9a43009915383c23fd0b78555b94c8b77419f578b80431",
+  "notes": "Marketplace Poster 2.5.1\r\n- בחירת קבוצות בטוחה: רק קבוצות שנשמרו או נבחרו במפורש.\r\n- ערך 0 במגבלת קבוצות פירושו כל הקבוצות שאושרו במפורש.\r\n- המתקין מתקין מיד את תוכנת הליבה; Smart AI מותקן בנפרד מתוך התוכנה או ההגדרות.\r\n- יציאה מתוך Marketplace Poster סוגרת גם את תהליך ה-AI המקומי שהתוכנה הפעילה.\r\n\r\nMarketplace Poster 2.5.0\r\n- ממשק יצירת מודעה חדש וברור יותר לכפתורי Smart AI.\r\n- הסרת המונחים Spintax ו-A/B/C מהמסך; גרסאות טקסט פשוטות עם בחירה ידנית או יצירת AI.\r\n- מצב AI לשינויים קלים במילים או שכתוב יצירתי מלא, עם בחירת מספר גרסאות.\r\n- תמונות יכולות להיות מסומנות כ-\"לא לשימוש כתמונה ראשית\"; Shuffle ויצירת גרסאות מכבדים את ההגדרה.\r\n- הגדרות מחולקות: כללי, משתמש, הגדרות AI, ייבוא וגיבוי, מתקדם.\r\n- Port/Local AI URL, נתיבי מודלים ושאר פרטים טכניים נמצאים רק במתקדם.\r\n- ייבוא, ייצוא, גיבוי ושחזור עברו להגדרות.\r\n- סטטוס AI ו-Repair AI ברורים יותר.\r\n- שומר תאימות להגדרות ולמודעות קיימות."
 }
