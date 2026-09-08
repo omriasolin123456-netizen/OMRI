@@ -1370,3 +1370,20 @@ func intForm(r *http.Request, key string, def int) int {
 	}
 	return v
 }
+
+func parseIntList(raw string) []int {
+	values := make([]int, 0)
+	seen := make(map[int]struct{})
+	for _, part := range strings.Split(raw, ",") {
+		v, err := strconv.Atoi(strings.TrimSpace(part))
+		if err != nil || v < 0 {
+			continue
+		}
+		if _, exists := seen[v]; exists {
+			continue
+		}
+		seen[v] = struct{}{}
+		values = append(values, v)
+	}
+	return values
+}
