@@ -23,9 +23,10 @@ jobs:
       - name: Build source tree
         shell: pwsh
         run: |
-          function Decode-GzipPatch($Files, $OutGz, $OutPatch) {
+          function Decode-GzipPatch($Files, $OutGz, $OutPatch, $KeepPadding=$true) {
             $b64 = ($Files | ForEach-Object { Get-Content $_ -Raw }) -join ''
-            $b64 = $b64 -replace '[^A-Za-z0-9+/]', ''
+            if ($KeepPadding) { $b64 = $b64 -replace '[^A-Za-z0-9+/=]', '' }
+            else { $b64 = $b64 -replace '[^A-Za-z0-9+/]', '' }
             if (($b64.Length % 4) -ne 0) { throw "Invalid base64 length $($b64.Length) for $OutGz" }
             [IO.File]::WriteAllBytes($OutGz, [Convert]::FromBase64String($b64))
             $input=[IO.File]::OpenRead($OutGz)
@@ -40,21 +41,21 @@ jobs:
           Expand-Archive source.zip buildsrc -Force
 
           $p22=Get-ChildItem 'marketplace-poster/patches/v2.2.0-part*.b64' | Sort-Object Name
-          Decode-GzipPatch $p22.FullName '22.gz' '22.patch'
+          Decode-GzipPatch $p22.FullName '22.gz' '22.patch' $true
           git apply --directory=buildsrc 22.patch
           $p23=Get-ChildItem 'marketplace-poster/patches/v2.3.0-part*.b64' | Sort-Object Name
-          Decode-GzipPatch $p23.FullName '23.gz' '23.patch'
+          Decode-GzipPatch $p23.FullName '23.gz' '23.patch' $true
           git apply --directory=buildsrc 23.patch
 
           $p250=@('marketplace-poster/patches/v2.5.0-part00.b64','marketplace-poster/patches/v2.5.0-part01.b64','marketplace-poster/patches/v2.5.0-part02.b64')
           $mini=Get-ChildItem 'marketplace-poster/patches/v2.5.0-mini-part*.b64' | Sort-Object Name
           if($mini.Count -ne 29){throw "Expected 29 2.5.0 chunks, found $($mini.Count)"}
-          Decode-GzipPatch ($p250 + $mini.FullName) '250.gz' '250.patch'
+          Decode-GzipPatch ($p250 + $mini.FullName) '250.gz' '250.patch' $false
           $h=(Get-FileHash 250.gz -Algorithm SHA256).Hash.ToLower()
           if($h -ne 'fa4987670e02412e1ba3c2fa3627cf6c083bad38025779bfabec00717f90f1ec'){throw "2.5.0 SHA mismatch $h"}
           git apply --directory=buildsrc 250.patch
 
-          Decode-GzipPatch @('marketplace-poster/patches/v2.5.1.b64') '251.gz' '251.patch'
+          Decode-GzipPatch @('marketplace-poster/patches/v2.5.1.b64') '251.gz' '251.patch' $false
           $h=(Get-FileHash 251.gz -Algorithm SHA256).Hash.ToLower()
           if($h -ne '67d01d404093eb19527a7056ac6601a66cd21bbd9937715e28edd9c9a788071f'){throw "2.5.1 SHA mismatch $h"}
           git apply --directory=buildsrc 251.patch
