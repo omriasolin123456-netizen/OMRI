@@ -3,103 +3,125 @@ name: Marketplace Poster Final Release
 on:
   push:
     branches: [marketplace-poster-updates]
-    paths: ['marketplace-poster/FINAL_TRIGGER']
+    paths:
+      - 'marketplace-poster/app/**'
+      - '.github/workflows/marketplace-poster-final.yml'
+      - 'marketplace-poster/FINAL_TRIGGER'
+  workflow_dispatch:
 
 permissions:
   contents: write
+
+concurrency:
+  group: marketplace-poster-final-release
+  cancel-in-progress: true
 
 jobs:
   release:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout update branch
+        uses: actions/checkout@v4
         with:
           ref: marketplace-poster-updates
-      - uses: actions/setup-go@v5
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
         with:
           go-version: '1.24.x'
           cache: false
 
-      - name: Build source tree
+      - name: Verify, format and test source
         shell: pwsh
+        working-directory: marketplace-poster/app
         run: |
-          function Decode-GzipPatch($Files, $OutGz, $OutPatch, $KeepPadding=$true) {
-            $b64 = ($Files | ForEach-Object { Get-Content $_ -Raw }) -join ''
-            if ($KeepPadding) { $b64 = $b64 -replace '[^A-Za-z0-9+/=]', '' }
-            else { $b64 = $b64 -replace '[^A-Za-z0-9+/]', '' }
-            if (($b64.Length % 4) -ne 0) { throw "Invalid base64 length $($b64.Length) for $OutGz" }
-            [IO.File]::WriteAllBytes($OutGz, [Convert]::FromBase64String($b64))
-            $input=[IO.File]::OpenRead($OutGz)
-            $gzip=New-Object IO.Compression.GZipStream($input,[IO.Compression.CompressionMode]::Decompress)
-            $output=[IO.File]::Create($OutPatch)
-            $gzip.CopyTo($output); $output.Dispose(); $gzip.Dispose(); $input.Dispose()
-          }
-          $src = Get-ChildItem 'marketplace-poster/source/part*.b64' | Sort-Object Name
-          $s = ($src | ForEach-Object { Get-Content $_.FullName -Raw }) -join ''
-          [IO.File]::WriteAllBytes('source.zip',[Convert]::FromBase64String($s))
-          New-Item -ItemType Directory -Force buildsrc | Out-Null
-          Expand-Archive source.zip buildsrc -Force
-
-          $p22=Get-ChildItem 'marketplace-poster/patches/v2.2.0-part*.b64' | Sort-Object Name
-          Decode-GzipPatch $p22.FullName '22.gz' '22.patch' $true
-          git apply --directory=buildsrc 22.patch
-          $p23=Get-ChildItem 'marketplace-poster/patches/v2.3.0-part*.b64' | Sort-Object Name
-          Decode-GzipPatch $p23.FullName '23.gz' '23.patch' $true
-          git apply --directory=buildsrc 23.patch
-
-          $p250=@('marketplace-poster/patches/v2.5.0-part00.b64','marketplace-poster/patches/v2.5.0-part01.b64','marketplace-poster/patches/v2.5.0-part02.b64')
-          $mini=Get-ChildItem 'marketplace-poster/patches/v2.5.0-mini-part*.b64' | Sort-Object Name
-          if($mini.Count -ne 29){throw "Expected 29 2.5.0 chunks, found $($mini.Count)"}
-          Decode-GzipPatch ($p250 + $mini.FullName) '250.gz' '250.patch' $false
-          $h=(Get-FileHash 250.gz -Algorithm SHA256).Hash.ToLower()
-          if($h -ne 'fa4987670e02412e1ba3c2fa3627cf6c083bad38025779bfabec00717f90f1ec'){throw "2.5.0 SHA mismatch $h"}
-          git apply --directory=buildsrc 250.patch
-
-          Decode-GzipPatch @('marketplace-poster/patches/v2.5.1.b64') '251.gz' '251.patch' $false
-          $h=(Get-FileHash 251.gz -Algorithm SHA256).Hash.ToLower()
-          if($h -ne '67d01d404093eb19527a7056ac6601a66cd21bbd9937715e28edd9c9a788071f'){throw "2.5.1 SHA mismatch $h"}
-          git apply --directory=buildsrc 251.patch
-          if((Get-Content buildsrc/VERSION -Raw).Trim() -ne '2.5.1'){throw 'Wrong final version'}
-
-      - name: Test
-        working-directory: buildsrc
-        run: |
+          $version = (Get-Content VERSION -Raw).Trim()
+          if ($version -ne '2.5.1') { throw "Expected version 2.5.1, found $version" }
+          gofmt -w *.go automation/*.go
           go mod tidy
           go test ./...
+          node --check web/app.js
 
-      - name: Build app with icon
+      - name: Embed Windows icon and manifest
         shell: pwsh
-        working-directory: buildsrc
+        working-directory: marketplace-poster/app
         run: |
           go install github.com/akavel/rsrc@latest
-          $rsrc=Join-Path (go env GOPATH) 'bin/rsrc.exe'
+          $rsrc = Join-Path (go env GOPATH) 'bin/rsrc.exe'
           & $rsrc -ico 'installer/MarketplacePoster.ico' -manifest 'installer/app.manifest' -o marketplaceposter.syso
-          New-Item -ItemType Directory -Force ../release,dist | Out-Null
-          go build -trimpath -ldflags '-H=windowsgui -s -w' -o ../release/MarketplacePoster.exe .
-          Copy-Item ../release/MarketplacePoster.exe dist/MarketplacePoster.exe -Force
+
+      - name: Build Windows application
+        shell: pwsh
+        working-directory: marketplace-poster/app
+        run: |
+          New-Item -ItemType Directory -Force ../../release,dist | Out-Null
+          go build -trimpath -ldflags '-H=windowsgui -s -w' -o ../../release/MarketplacePoster.exe .
+          Copy-Item ../../release/MarketplacePoster.exe dist/MarketplacePoster.exe -Force
 
       - name: Build Setup Wizard
         shell: pwsh
-        working-directory: buildsrc
+        working-directory: marketplace-poster/app
         run: |
           choco install innosetup -y --no-progress
-          $iscc='C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
-          & $iscc '/DMyAppVersion=2.5.1' 'installer\MarketplacePoster.iss'
-          if(-not(Test-Path 'dist\MarketplacePoster-Setup.exe')){throw 'Setup not created'}
-          Copy-Item dist/MarketplacePoster-Setup.exe ../release/MarketplacePoster-Setup.exe -Force
+          $version = (Get-Content VERSION -Raw).Trim()
+          $iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path $iscc)) { throw 'Inno Setup compiler not found' }
+          & $iscc "/DMyAppVersion=$version" 'installer\MarketplacePoster.iss'
+          if (-not (Test-Path 'dist\MarketplacePoster-Setup.exe')) { throw 'Setup EXE was not created' }
+          Copy-Item dist/MarketplacePoster-Setup.exe ../../release/MarketplacePoster-Setup.exe -Force
 
-      - name: Publish
+      - name: Package source
         shell: pwsh
         run: |
-          $app=(Get-FileHash release/MarketplacePoster.exe -Algorithm SHA256).Hash.ToLower()
-          $setup=(Get-FileHash release/MarketplacePoster-Setup.exe -Algorithm SHA256).Hash.ToLower()
-          $notes=(Get-Content buildsrc/RELEASE_NOTES.txt -Raw).Trim()
-          $m=[ordered]@{version='2.5.1';download_url='https://raw.githubusercontent.com/omriasolin123456-netizen/OMRI/marketplace-poster-updates/release/MarketplacePoster.exe';sha256=$app;setup_url='https://raw.githubusercontent.com/omriasolin123456-netizen/OMRI/marketplace-poster-updates/release/MarketplacePoster-Setup.exe';setup_sha256=$setup;notes=$notes}|ConvertTo-Json
-          [IO.File]::WriteAllText((Join-Path $PWD 'release/manifest.json'),$m,(New-Object Text.UTF8Encoding($false)))
+          $source = 'marketplace-poster/app'
+          $zip = 'release/MarketplacePoster-source-v2.5.1.zip'
+          if (Test-Path $zip) { Remove-Item $zip -Force }
+          $items = Get-ChildItem $source -Force | Where-Object { $_.Name -notin @('dist', 'marketplaceposter.syso') }
+          Compress-Archive -Path $items.FullName -DestinationPath $zip -CompressionLevel Optimal
+
+      - name: Create hashes and update manifest
+        shell: pwsh
+        run: |
+          $app = (Get-FileHash release/MarketplacePoster.exe -Algorithm SHA256).Hash.ToLower()
+          $setup = (Get-FileHash release/MarketplacePoster-Setup.exe -Algorithm SHA256).Hash.ToLower()
+          $source = (Get-FileHash release/MarketplacePoster-source-v2.5.1.zip -Algorithm SHA256).Hash.ToLower()
+          $notes = (Get-Content marketplace-poster/app/RELEASE_NOTES.txt -Raw).Trim()
+          $manifest = [ordered]@{
+            version = '2.5.1'
+            download_url = 'https://raw.githubusercontent.com/omriasolin123456-netizen/OMRI/marketplace-poster-updates/release/MarketplacePoster.exe'
+            sha256 = $app
+            setup_url = 'https://raw.githubusercontent.com/omriasolin123456-netizen/OMRI/marketplace-poster-updates/release/MarketplacePoster-Setup.exe'
+            setup_sha256 = $setup
+            source_url = 'https://raw.githubusercontent.com/omriasolin123456-netizen/OMRI/marketplace-poster-updates/release/MarketplacePoster-source-v2.5.1.zip'
+            source_sha256 = $source
+            notes = $notes
+          } | ConvertTo-Json
+          [IO.File]::WriteAllText((Join-Path $PWD 'release/manifest.json'), $manifest, (New-Object Text.UTF8Encoding($false)))
           Set-Content release/MarketplacePoster.exe.sha256 "$app  MarketplacePoster.exe" -Encoding ascii
           Set-Content release/MarketplacePoster-Setup.exe.sha256 "$setup  MarketplacePoster-Setup.exe" -Encoding ascii
+          Set-Content release/MarketplacePoster-source-v2.5.1.zip.sha256 "$source  MarketplacePoster-source-v2.5.1.zip" -Encoding ascii
+
+      - name: Publish release files
+        shell: pwsh
+        run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add release
-          git commit -m 'Build Marketplace Poster 2.5.1 Final [skip ci]'
-          git push origin HEAD:marketplace-poster-updates
+          git add marketplace-poster/app release
+          if (-not (git diff --cached --quiet)) {
+            git commit -m 'Build Marketplace Poster 2.5.1 Final [skip ci]'
+            git push origin HEAD:marketplace-poster-updates
+          }
+
+      - name: Upload verified release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MarketplacePoster-2.5.1
+          path: |
+            release/MarketplacePoster.exe
+            release/MarketplacePoster.exe.sha256
+            release/MarketplacePoster-Setup.exe
+            release/MarketplacePoster-Setup.exe.sha256
+            release/MarketplacePoster-source-v2.5.1.zip
+            release/MarketplacePoster-source-v2.5.1.zip.sha256
+            release/manifest.json
+          if-no-files-found: error

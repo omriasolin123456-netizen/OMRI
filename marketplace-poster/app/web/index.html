@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Marketplace Poster V2</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><strong>Marketplace Poster</strong><span id="versionLabel">V2</span><span id="licenseBadge">ללא רישיון</span></div>
+    <nav id="tabs" class="tabs">
+      <button data-tab="dashboard" class="active">דשבורד</button>
+      <button data-tab="newad">מודעה חדשה</button>
+      <button data-tab="ads">מודעות</button>
+      <button data-tab="queue">פרסום</button>
+      <button data-tab="templates">תבניות</button>
+      <button data-tab="history">היסטוריה</button>
+      <button data-tab="accounts">חשבונות</button>
+      <button data-tab="settings">הגדרות</button>
+    </nav>
+    <div class="fb-box">
+      <span id="fbDot" class="dot"></span><span id="fbStatus">Facebook לא מחובר</span>
+      <button id="connectBtn" class="btn secondary small">חבר Facebook</button>
+      <button id="exitBtn" class="btn danger small">יציאה</button>
+    </div>
+  </header>
+
+  <main class="shell">
+    <section class="tab-panel active" id="tab-dashboard">
+      <div class="page-title"><div><h1>דשבורד</h1><p>מצב המודעות והפרסומים שלך</p></div><button id="openDataBtn" class="btn ghost">פתח תיקיית נתונים</button></div>
+      <div class="stats-grid">
+        <div class="stat"><span>מודעות פעילות</span><b id="stTotal">0</b></div>
+        <div class="stat"><span>ממתינות</span><b id="stWaiting">0</b></div>
+        <div class="stat good"><span>פורסמו היום</span><b id="stPublished">0</b></div>
+        <div class="stat bad"><span>שגיאות היום</span><b id="stFailed">0</b></div>
+        <div class="stat"><span>דולגו היום</span><b id="stSkipped">0</b></div>
+        <div class="stat"><span>זמן ממוצע</span><b id="stAvg">0s</b></div>
+      </div>
+      <div class="grid two-col">
+        <div class="card"><h2>סטטוס Facebook</h2><div class="big-status"><span id="dashFbDot" class="dot"></span><span id="dashFbText">לא מחובר</span></div><button class="btn primary" id="dashConnectBtn">פתח / חבר Facebook</button></div>
+        <div class="card"><h2>הרצה אחרונה / המשך</h2><div id="resumeInfo" class="muted">אין הרצה שנקטעה.</div><button id="resumeBtn" class="btn secondary" disabled>המשך הרצה</button></div>
+      </div>
+      <div class="card"><h2>פעילות אחרונה</h2><div id="dashboardHistory" class="table-wrap"></div></div>
+    </section>
+
+    <section class="tab-panel" id="tab-newad">
+      <div class="page-title"><div><h1 id="adFormTitle">מודעה חדשה</h1><p>כל הנתונים נשמרים מקומית במחשב.</p></div></div>
+      <form id="adForm" class="card form-card">
+        <input type="hidden" id="editAdId">
+        <div class="grid two-col">
+          <label>כותרת<input id="title" name="title" maxlength="100" required placeholder="לדוגמה: שולחן סלון מודרני"></label>
+          <label>מחיר<input id="price" name="price" inputmode="numeric" required placeholder="1250"></label>
+        </div>
+        <div class="grid three-col">
+          <label>קטגוריה<input id="category" name="category" list="categoryOptions" required placeholder="לדוגמה: ריהוט / פלייסטיישן / רכב"><input type="hidden" id="categoryId" name="category_id"><datalist id="categoryOptions"></datalist><span class="help">לא חייבים לכתוב את שם הקטגוריה בדיוק — המערכת מזהה וממפה.</span></label>
+          <label>מצב<select id="condition" name="condition" required><option>חדש</option><option>משומש - כמו חדש</option><option>משומש - מצב טוב</option><option>משומש - מצב סביר</option></select></label>
+          <label>חשבון Facebook<select id="adAccount" name="account_id"></select></label>
+        </div>
+        <div id="categoryFields" class="grid three-col"></div>
+        <label>תיאור<textarea id="description" name="description" rows="7" placeholder="כתוב את תיאור המודעה..."></textarea></label>
+        <div class="ai-toolbox">
+          <div class="ai-toolbox-head"><div><strong>עוזר AI למודעה</strong><span>בחר מה תרצה לשפר — שום שינוי לא נשמר עד שתשמור את המודעה.</span></div><span class="ai-badge">Smart AI</span></div>
+          <div class="ai-actions-grid">
+            <button type="button" class="ai-action ai-btn" data-ai="improve"><b>שפר את המודעה</b><span>ניסוח מכירתי, ברור וטבעי</span></button>
+            <button type="button" class="ai-action" id="aiTitlesBtn"><b>הצע כותרות</b><span>כמה כותרות חזקות לבחירה</span></button>
+            <button type="button" class="ai-action" id="aiTagsBtn"><b>צור תגיות</b><span>תגיות חיפוש רלוונטיות למוצר</span></button>
+            <button type="button" class="ai-action ai-btn" data-ai="shorten"><b>קצר את הטקסט</b><span>מוריד מילים מיותרות ושומר פרטים</span></button>
+            <button type="button" class="ai-action ai-btn" data-ai="spelling"><b>תקן כתיב</b><span>תיקון שפה בלבד, בלי לשנות מידע</span></button>
+          </div>
+        </div>
+        <div class="variant-builder card soft-card">
+          <div class="section-heading"><div><h3>גרסאות טקסט</h3><p>בחר אם להשתמש בטקסט אחד, להזין גרסאות משלך או לתת ל-AI ליצור גרסאות.</p></div></div>
+          <div class="choice-cards" id="variantSourceChoices">
+            <label class="choice-card"><input type="radio" name="variant_source" value="none" checked><span><b>ללא גרסאות</b><small>השתמש תמיד בטקסט הראשי</small></span></label>
+            <label class="choice-card"><input type="radio" name="variant_source" value="manual"><span><b>אני מזין גרסאות מלאות</b><small>כתוב כותרות ותיאורים נוספים בעצמך</small></span></label>
+            <label class="choice-card"><input type="radio" name="variant_source" value="ai"><span><b>AI ייצור לי גרסאות</b><small>המערכת תציע מספר גרסאות מתוך הטקסט שלך</small></span></label>
+          </div>
+          <div id="manualVariantsBox" class="variant-options hidden">
+            <label>כותרות נוספות<textarea id="titleVariants" name="title_variants" rows="4" placeholder="כתוב כותרת נוספת. להפרדת גרסאות השתמש בשורה עם ---"></textarea></label>
+            <label>תיאורים נוספים<textarea id="descriptionVariants" name="description_variants" rows="6" placeholder="כתוב תיאור נוסף. להפרדת גרסאות השתמש בשורה עם ---"></textarea></label>
+          </div>
+          <div id="aiVariantsBox" class="variant-options hidden">
+            <div class="grid three-col">
+              <label>סוג השינוי<select id="aiVariantStyle"><option value="variants_light">שינויים קלים במילים ובניסוח</option><option value="variants">שכתוב יצירתי של כל הגרסה</option></select></label>
+              <label>כמה גרסאות<input id="adAIVariantCount" type="number" min="2" max="10" value="5"></label>
+              <label>איך לבחור בזמן פרסום<select id="variantMode" name="variant_mode"><option value="sequence">לעבור לפי הסדר</option><option value="random">לבחור גרסה אקראית</option><option value="first">להשתמש תמיד בראשונה</option></select></label>
+            </div>
+            <button type="button" id="generateAdVariantsBtn" class="btn primary">צור גרסאות עם AI</button>
+            <div id="adVariantMsg" class="message"></div>
+          </div>
+          <input type="hidden" id="variantSource" value="none">
+          <div class="grid two-col"><label>כמות תמונות לפרסום<input id="imageLimit" name="image_limit" type="number" min="1" max="10" value="10"></label><div class="help-box">הגרסאות משמשות לגיוון תוכן ולבדיקות A/B לגיטימיות. כל העובדות, המחיר והמידות נשמרים.</div></div>
+        </div>
+        <div class="grid two-col">
+          <label>תגיות<input id="tags" name="tags" placeholder="שולחן, סלון, ריהוט"><span class="help">אפשר לכתוב אפילו תגית אחת — AI: תגיות ישמור אותה וירחיב לתגיות חיפוש חזקות.</span></label>
+          <label>קבוצות למודעה<input id="groupsField" name="groups" placeholder="שם קבוצה 1, שם קבוצה 2"><span class="help">רק קבוצות ששמרת או בחרת במפורש. אם ריק, ישתמש ברשימת הקבוצות שבהגדרות.</span><button type="button" id="selectAllSavedGroupsBtn" class="btn ghost compact-btn">בחר את כל הקבוצות ששמרתי</button></label>
+        </div>
+        <div class="card soft-card"><label class="inline check"><input id="useSignature" type="checkbox"> הוסף חתימה / מספר טלפון למודעה</label><label>חתימה מיוחדת למודעה (אופציונלי)<input id="signatureText" placeholder="אם ריק, משתמש בברירת המחדל מההגדרות"></label><div id="signaturePreview" class="muted"></div></div>
+        <div id="dropZone" class="upload-zone">
+          <input id="imagesInput" type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" multiple hidden>
+          <strong>גרור תמונות לכאן או לחץ לבחירה</strong><span>עד 10 תמונות. אפשר לשנות סדר, לסובב, לבחור ראשית, או לסמן תמונה שאסור להשתמש בה כתמונה ראשית.</span>
+        </div>
+        <div id="imagePreview" class="image-preview"></div>
+        <div id="existingImages" class="image-preview"></div>
+        <div class="actions"><button type="submit" class="btn primary" id="saveAdBtn">שמור מודעה</button><button type="button" id="cancelEditBtn" class="btn ghost hidden">בטל עריכה</button><button type="reset" class="btn ghost">נקה</button></div>
+        <div id="formMsg" class="message"></div>
+      </form>
+    </section>
+
+    <section class="tab-panel" id="tab-ads">
+      <div class="page-title"><div><h1>המודעות שלי</h1><p id="adsCount">0 מודעות</p></div><div class="actions"><button id="selectAllBtn" class="btn ghost">בחר הכל</button><button id="bulkBtn" class="btn secondary">עריכה מרובה</button></div></div>
+      <div class="card filters"><input id="searchAds" placeholder="חיפוש לפי כותרת / קטגוריה"><select id="statusFilter"><option value="">כל הסטטוסים</option><option value="ready">מוכן</option><option value="published">פורסם</option><option value="error">שגיאה</option><option value="skipped">דולג</option><option value="needs_images">חסרות תמונות</option></select><select id="sortAds"><option value="new">החדשות קודם</option><option value="old">הישנות קודם</option><option value="priceHigh">מחיר גבוה</option><option value="priceLow">מחיר נמוך</option></select><label class="inline"><input id="showArchived" type="checkbox"> הצג ארכיון</label></div>
+      <div id="adsList" class="ads-list"></div>
+    </section>
+
+    <section class="tab-panel" id="tab-queue">
+      <div class="page-title"><div><h1>תור פרסום</h1><p id="selectedCount">0 מודעות נבחרו</p></div></div>
+      <div class="grid two-col">
+        <div class="card">
+          <h2>הגדרות הרצה</h2>
+          <div class="grid two-col"><label>כמות לפרסום<input id="limit" type="number" min="1" value="1"></label><label>חשבון<select id="queueAccount"></select></label><label>השהיה מינימלית (שניות)<input id="minDelay" type="number" min="0" value="45"></label><label>השהיה מקסימלית (שניות)<input id="maxDelay" type="number" min="0" value="180"></label></div>
+          <label class="inline check"><input id="groups" type="checkbox"> פרסם גם לקבוצות המועדפות</label>
+          <label class="inline check"><input id="previewBefore" type="checkbox"> Preview ב-Chrome לפני Publish</label>
+          <label class="inline check"><input id="dryRun" type="checkbox"> מצב בדיקה בלבד — ממלא את הטופס אבל לא מפרסם</label>
+          <div class="actions"><button id="publishBtn" class="btn success">התחל פרסום</button><button id="stopBtn" class="btn danger" disabled>עצור</button><button id="queueResumeBtn" class="btn secondary" disabled>המשך מהריצה הקודמת</button></div>
+        </div>
+        <div class="card">
+          <h2>מצב ההרצה</h2><div class="progress"><div id="progressBar"></div></div><div id="queueMessage" class="queue-message">מוכן</div><div id="queueNumbers" class="muted"></div><div id="currentAd" class="current-ad"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="tab-panel" id="tab-templates">
+      <div class="page-title"><div><h1>תבניות</h1><p>שמור מבני טקסט לשימוש חוזר עם משתנים כמו {{PRODUCT}}, {{SIZE}}, {{COLOR}}, {{PRICE}}.</p></div></div>
+      <div class="grid two-col">
+        <form id="templateForm" class="card"><h2>תבנית חדשה</h2><label>שם התבנית<input id="tplName" required></label><label>כותרת<input id="tplTitle" placeholder="{{PRODUCT}} בהתאמה אישית"></label><label>תיאור<textarea id="tplDesc" rows="8"></textarea></label><div class="grid two-col"><label>קטגוריה<input id="tplCategory"></label><label>מצב<input id="tplCondition"></label></div><label>תגיות<input id="tplTags"></label><button class="btn primary">שמור תבנית</button></form>
+        <div class="card"><h2>תבניות שמורות</h2><div id="templatesList"></div></div>
+      </div>
+    </section>
+
+    <section class="tab-panel" id="tab-history">
+      <div class="page-title"><div><h1>היסטוריית פרסום</h1><p>נשמרת גם גרסת הטקסט המדויקת שבה נעשה שימוש.</p></div><button id="refreshHistory" class="btn ghost">רענן</button></div>
+      <div id="historyTable" class="card table-wrap"></div>
+    </section>
+
+
+    <section class="tab-panel" id="tab-accounts">
+      <div class="page-title"><div><h1>חשבונות Facebook</h1><p>לכל חשבון נשמר Chrome Profile נפרד.</p></div></div>
+      <div id="accountLimitInfo" class="message"></div><div class="grid two-col"><form id="accountForm" class="card"><h2>הוסף חשבון</h2><label>שם פנימי<input id="accountName" placeholder="לדוגמה: חשבון עסקי"></label><button class="btn primary">הוסף</button></form><div class="card"><h2>חשבונות</h2><div id="accountsList"></div></div></div>
+    </section>
+
+    <section class="tab-panel" id="tab-settings">
+      <div class="page-title"><div><h1>הגדרות</h1><p>הגדרות מסודרות לפי נושא. הגדרות טכניות נמצאות רק תחת "מתקדם".</p></div></div>
+      <form id="settingsForm" class="card settings-form">
+        <div class="settings-nav">
+          <button type="button" class="settings-nav-btn active" data-settings-section="general">כללי</button>
+          <button type="button" class="settings-nav-btn" data-settings-section="user">משתמש</button>
+          <button type="button" class="settings-nav-btn" data-settings-section="ai">הגדרות AI</button>
+          <button type="button" class="settings-nav-btn" data-settings-section="import">ייבוא וגיבוי</button>
+          <button type="button" class="settings-nav-btn" data-settings-section="advanced">מתקדם</button>
+        </div>
+
+        <div class="settings-section active" data-settings-panel="general">
+          <h2>ברירות מחדל למודעה</h2>
+          <div class="grid three-col"><label>קטגוריה<input id="setCategory" list="categoryOptions"></label><label>מצב<input id="setCondition"></label><label>כמות תמונות ברירת מחדל<input id="setImageLimit" type="number" min="1" max="10"></label></div>
+          <h3>חתימה ומספר טלפון</h3><label class="inline check"><input id="setDefaultSignatureEnabled" type="checkbox"> הוסף חתימה כברירת מחדל לכל מודעה חדשה</label><div class="grid three-col"><label>מספר טלפון<input id="setDefaultPhone" placeholder="0504443861"></label><label class="inline check"><input id="setPhoneEmoji" type="checkbox"> הצג את המספר בספרות אימוג׳י</label><label>טקסט חתימה<input id="setDefaultSignatureText" placeholder="לפרטים נוספים: {{PHONE}}"></label></div><p class="help">אפשר להשתמש ב־{{PHONE}}. בכל מודעה ניתן לכבות או לשנות את החתימה.</p>
+          <h3>תמונות</h3><label class="inline check"><input id="setImageShuffle" type="checkbox"> ערבב את סדר התמונות בכל פרסום</label><label class="inline check"><input id="setImageRandomCover" type="checkbox"> בחר תמונה ראשית שונה מתוך התמונות המותרות</label><label class="inline check"><input id="setImageRandomSubset" type="checkbox"> בחר בכל פעם כמות תמונות שונה מתוך הסט</label><label>מינימום תמונות בכל פרסום<input id="setImageMinCount" type="number" min="1" max="10"></label>
+          <h3>ממשק</h3><label class="inline check"><input id="setNotifications" type="checkbox"> התראות בדפדפן / Windows</label><label class="inline check"><input id="setDark" type="checkbox"> מצב כהה</label>
+        </div>
+
+        <div class="settings-section" data-settings-panel="user">
+          <h2>רישיון ומנוי</h2><div id="licenseSettingsStatus" class="message"></div><div class="actions"><button type="button" id="refreshLicenseBtn" class="btn secondary">רענן רישיון</button><button type="button" id="deactivateLicenseBtn" class="btn danger">נתק רישיון מהמחשב</button></div>
+          <h2>חשבון ופרסום</h2><label class="inline check"><input id="setPreview" type="checkbox"> הצג Preview לפני פרסום כברירת מחדל</label><label class="inline check"><input id="setGroups" type="checkbox"> פרסום לקבוצות כברירת מחדל</label><label>קבוצות מועדפות<input id="setFavoriteGroups" placeholder="קבוצה 1, קבוצה 2"></label><label>מקסימום קבוצות למודעה<input id="setMaxGroups" type="number" min="0"><span class="help">0 = כל הקבוצות ששמרת/בחרת במפורש. התוכנה לא מסמנת קבוצות Facebook אחרות.</span></label>
+          <h2>נעילה מקומית</h2><div class="grid two-col"><label>PIN חדש (לפחות 4 תווים)<input id="setPIN" type="password" autocomplete="new-password"></label><div class="actions pin-actions"><button type="button" id="savePINBtn" class="btn secondary">הגדר / החלף PIN</button><button type="button" id="clearPINBtn" class="btn danger">בטל PIN</button></div></div><p class="help">ה־PIN נשמר מקומית כ־hash בלבד.</p>
+        </div>
+
+        <div class="settings-section" data-settings-panel="ai">
+          <div class="section-heading"><div><h2>Smart AI</h2><p>הגדרות פשוטות לשימוש היומיומי. פרטים טכניים נמצאים תחת "מתקדם".</p></div><div id="aiStatePill" class="status-pill">בודק...</div></div>
+          <label class="inline check"><input id="setLocalAIEnabled" type="checkbox"> הפעל Smart AI</label><label class="inline check"><input id="setLocalAIAutoStart" type="checkbox"> הפעל את AI אוטומטית כשצריך</label><label class="inline check"><input id="setAIHebrewOnly" type="checkbox"> כתיבה בעברית בלבד</label><label class="inline check"><input id="setAutoCreativeText" type="checkbox"> צור וריאציה חדשה אוטומטית כאשר נבחר מצב וריאציות</label>
+          <div class="grid two-col"><label>סגנון כתיבה<select id="setAICreativeMode"><option value="conservative">שמרני — שינוי קל</option><option value="balanced">מאוזן</option><option value="creative">יצירתי ומכירתי</option></select></label><label>כמות גרסאות ברירת מחדל<input id="setAIVariantCount" type="number" min="2" max="10"></label></div>
+          <div class="card soft-card"><h3>מודל AI</h3><p class="help">מומלץ להשאיר על אוטומטי. המערכת בוחרת את המודל החזק ביותר שמתאים למחשב.</p><div class="grid two-col"><label>בחירת מודל<select id="setAIModelMode"><option value="auto">אוטומטי — מומלץ</option><option value="manual">בחירה ידנית</option></select></label><label>מודל ידני<select id="modelManagerSelect"></select></label></div><div class="actions"><button type="button" id="detectHardwareBtn" class="btn secondary">בדוק את המחשב</button><button type="button" id="installRecommendedBtn" class="btn primary">התקן Smart AI</button><button type="button" id="repairAIButton" class="btn secondary hidden">Repair AI</button><button type="button" id="installSelectedModelBtn" class="btn ghost">התקן מודל נבחר</button></div><div id="hardwareMsg" class="message"></div><div id="modelManagerList"></div></div>
+          <div class="actions"><button type="button" id="checkAIStatusBtn" class="btn secondary">בדוק AI</button><button type="button" id="startAIButton" class="btn primary">הפעל AI</button></div><div id="aiStatusMsg" class="message"></div>
+          <details class="advanced"><summary>AI לתמונות — אופציונלי למחשבים חזקים</summary><label class="inline check"><input id="setImageAIEnabled" type="checkbox"> אפשר יצירת וריאציות תצוגה לתמונות מוצר</label><p class="help">שינויים כגון רקע, תאורה ופריימינג תוך שמירה על המוצר האמיתי.</p><div class="actions"><button type="button" id="installImageAIBtn" class="btn primary">התקן Image AI Pack</button><button type="button" id="refreshImageAIStatusBtn" class="btn ghost">בדוק סטטוס</button></div><div id="imageAIStatusMsg" class="message"></div></details>
+        </div>
+
+        <div class="settings-section" data-settings-panel="import">
+          <h2>ייבוא, ייצוא וגיבוי</h2><div class="grid three-col"><div class="settings-card"><h3>CSV / Excel</h3><p class="muted">ייצא את המודעות ל־CSV או ייבא קובץ קיים.</p><a class="btn secondary linkbtn" href="/api/csv/export">ייצא CSV</a><label class="filebtn">ייבא CSV<input id="csvImport" type="file" accept=".csv" hidden></label></div><div class="settings-card"><h3>ייבוא תיקיית מוצרים</h3><p class="muted">כל תיקיית משנה יכולה להפוך למודעה עם טקסט ותמונות.</p><label class="filebtn">בחר תיקייה<input id="folderImport" type="file" webkitdirectory directory multiple hidden></label><div id="folderImportMsg" class="message"></div></div><div class="settings-card"><h3>גיבוי ושחזור</h3><button type="button" id="backupBtn" class="btn primary">צור גיבוי ZIP</button><label class="filebtn">שחזר מגיבוי<input id="restoreBackup" type="file" accept=".zip" hidden></label><p class="help">כולל מודעות, תמונות, הגדרות והיסטוריה. Session של Facebook אינו נכלל.</p></div></div>
+        </div>
+
+        <div class="settings-section" data-settings-panel="advanced">
+          <div class="warning-box">הגדרות אלה מיועדות לתמיכה ולמשתמשים מתקדמים. ברוב המקרים אין צורך לשנות אותן.</div>
+          <h2>מגבלות והרצה</h2><div class="grid four-col"><label>מקסימום ביום<input id="setDailyLimit" type="number" min="1"></label><label>מקסימום בהרצה<input id="setRunLimit" type="number" min="1"></label><label>עצור אחרי שגיאות<input id="setMaxErrors" type="number" min="1"></label><label>טיימר החלטה בשגיאה<input id="setDecisionTimeout" type="number" min="10"></label></div><div class="grid two-col"><label>השהיה מינימלית<input id="setMinDelay" type="number" min="0"></label><label>השהיה מקסימלית<input id="setMaxDelay" type="number" min="0"></label></div><label class="inline check"><input id="setAutoSkip" type="checkbox"> אם אין תגובה בזמן שגיאה — דלג אוטומטית</label>
+          <input type="hidden" id="setVariantMode" value="sequence">
+          <h2>AI — פרטים טכניים</h2><div class="grid two-col"><label>Model file<input id="setLocalAIModel"></label><label>Local AI URL<input id="setLocalAIBaseURL" placeholder="http://127.0.0.1:12345"></label></div><div class="grid two-col"><label>Image AI Runtime<input id="setImageAIRuntime"></label><label>Image AI Model<input id="setImageAIModel"></label><label>Image AI VAE<input id="setImageAIVAE"></label><label>Image AI Text Encoder<input id="setImageAILLM"></label><label>Image AI Vision<input id="setImageAILLMVision"></label></div><details class="advanced"><summary>Gemini fallback</summary><label class="inline check"><input id="setGeminiEnabled" type="checkbox"> הפעל Gemini אם ה־AI המקומי אינו זמין</label><div class="grid two-col"><label>API Key<input id="setGeminiKey" type="password" autocomplete="off"></label><label>Model<input id="setGeminiModel"></label></div></details>
+          <h2>עדכונים</h2><label class="inline check"><input id="setCheckUpdatesOnStart" type="checkbox"> בדוק עדכונים אוטומטית בהפעלת התוכנה</label><label>שרת עדכונים<input id="setUpdateURL"></label><div class="actions"><button type="button" id="checkUpdateBtn" class="btn secondary">בדוק עדכונים</button><button type="button" id="downloadUpdateBtn" class="btn primary" disabled>עדכן עכשיו</button></div><div id="updateMsg" class="message"></div>
+        </div>
+
+        <div class="settings-save"><button class="btn primary">שמור הגדרות</button><div id="settingsMsg" class="message"></div></div>
+      </form>
+    </section>
+  </main>
+
+
+  <div id="licenseOverlay" class="overlay hidden"><div class="dialog"><h2>הפעלת Marketplace Poster</h2><p>אפשר להתחיל ניסיון של 7 ימים או להזין קוד רישיון.</p><div id="licensePlanInfo" class="message"></div><form id="licenseForm"><label>קוד רישיון<input id="licenseKey" autocomplete="off" placeholder="MP-XXXXX-XXXXX-XXXXX-XXXXX"></label><div class="actions"><button class="btn primary">הפעל רישיון</button><button type="button" id="startTrialBtn" class="btn secondary">התחל ניסיון 7 ימים</button></div></form><div id="licenseMsg" class="message"></div></div></div>
+
+  <div id="authOverlay" class="overlay hidden"><form id="authForm" class="dialog"><h2>Marketplace Poster נעול</h2><p>הזן את ה-PIN המקומי כדי להמשיך.</p><label>PIN<input id="authPIN" type="password" autocomplete="current-password" autofocus></label><div class="actions"><button class="btn primary">פתח</button></div><div id="authMsg" class="message"></div></form></div>
+
+
+  <div id="aiInstallOverlay" class="overlay hidden"><div class="dialog"><h2>Smart AI הוא תוספת אופציונלית</h2><p>Marketplace Poster מוכנה לעבודה גם בלי AI. אם תרצה, אפשר להתקין עכשיו את מנוע ה-AI והמודל המתאים למחשב ברקע ולהמשיך לעבוד בזמן ההורדה.</p><div id="aiInstallHardware" class="message"></div><div class="actions"><button id="aiInstallNowBtn" class="btn primary">התקן עכשיו ברקע</button><button id="aiInstallLaterBtn" class="btn ghost">אחר כך</button></div><div id="aiInstallMsg" class="message"></div></div></div>
+
+
+  <div id="aiProblemOverlay" class="overlay hidden"><div class="dialog"><h2 id="aiProblemTitle">Smart AI</h2><p id="aiProblemText"></p><div id="aiProblemDetails" class="message"></div><div class="actions"><button id="aiProblemInstall" class="btn primary hidden">התקן Smart AI עכשיו</button><button id="aiProblemRepair" class="btn secondary hidden">Repair AI</button><button id="aiProblemRetry" class="btn ghost hidden">נסה להפעיל שוב</button><a id="aiProblemSupport" class="btn danger hidden" href="https://marketplace-poster-ai.netlify.app/#support" target="_blank" rel="noopener">פנייה לשירות</a><button type="button" class="btn ghost" data-close-overlay="aiProblemOverlay">סגור</button></div><div id="aiProblemMsg" class="message"></div></div></div>
+
+  <div id="decisionOverlay" class="overlay hidden"><div class="dialog"><h2 id="decisionTitle">נדרשת החלטה</h2><p id="decisionText"></p><img id="decisionScreenshot" class="decision-shot hidden" alt="צילום מסך מהשגיאה"><div id="decisionTimer" class="timer"></div><div class="actions"><button id="decisionRetry" class="btn primary">נסה שוב</button><button id="decisionPublish" class="btn success hidden">פרסם</button><button id="decisionSkip" class="btn secondary">דלג</button><button id="decisionManual" class="btn danger">פתח ידנית / עצור</button></div></div></div>
+
+  <div id="bulkOverlay" class="overlay hidden"><div class="dialog"><h2>עריכה מרובה</h2><p class="muted">השאר שדה ריק כדי לא לשנות אותו.</p><label>מחיר<input id="bulkPrice"></label><label>קטגוריה<input id="bulkCategory"></label><label>מצב<input id="bulkCondition"></label><div class="actions"><button id="applyBulk" class="btn primary">החל על הנבחרות</button><button class="btn ghost" data-close-overlay="bulkOverlay">ביטול</button></div></div></div>
+
+  <div id="lightbox" class="overlay hidden"><div class="lightbox-inner"><img id="lightboxImg" alt=""><button class="btn ghost" data-close-overlay="lightbox">סגור</button></div></div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,6 @@
+{
+  "version": "2.1.0",
+  "download_url": "https://example.com/MarketplacePoster-2.1.0.exe",
+  "sha256": "PUT_THE_EXE_SHA256_HERE",
+  "notes": "Example update manifest. Host this JSON over HTTPS."
+}
